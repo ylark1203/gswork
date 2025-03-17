@@ -40,7 +40,6 @@
     "react-snap": "^1.23.0",
     "sass": "^1.83.4",
     "sharp": "^0.33.2",
-    "typos-rs-npm": "github:dalisoft/typos-rs-npm",
     "vite": "^6.0.11"
   },
   "dependencies": {
