@@ -20,15 +20,21 @@ Official implementation of CVPR2025 paper "RGBAvatar: Reduced Gaussian Blendshap
    conda create -n rgbavatar python=3.10
    ```
 
-3. Install [PyTorch](https://pytorch.org/get-started/locally/) and [nvdiffrast](https://nvlabs.github.io/nvdiffrast/).
+3. Install [PyTorch](https://pytorch.org/get-started/locally/) and [nvdiffrast](https://nvlabs.github.io/nvdiffrast/). Please make sure that the PyTorch CUDA version matches your system's CUDA version. We use CUDA 11.8 here.
 
-5. Install other packages.
+   ```
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+   
+   pip install git+https://github.com/NVlabs/nvdiffrast
+   ```
+
+4. Install other packages.
 
    ```
    pip install -r requirements.txt
    ```
 
-6. Compile PyTorch CUDA extension.
+5. Compile PyTorch CUDA extension.
 
    ```
    pip install submodules/diff-gaussian-rasterization
