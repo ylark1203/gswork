@@ -1,6 +1,8 @@
 # RGBAvatar
 
-TL;DR Our method reconstructs a high-fidelity head avatar from a monocular video stream on the fly.
+[Paper](https://arxiv.org/pdf/2503.10624) | [Webpage](https://gapszju.github.io/RGBAvatar/)
+
+Official implementation of CVPR2025 paper "RGBAvatar: Reduced Gaussian Blendshapes for Online Modeling of Head Avatars".
 
 
 ## Installation
