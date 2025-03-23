@@ -1,6 +1,6 @@
 # RGBAvatar
 
-[Paper](https://arxiv.org/pdf/2503.10624) | [Webpage](https://gapszju.github.io/RGBAvatar/)
+[Paper](https://arxiv.org/pdf/2503.12886) | [Webpage](https://gapszju.github.io/RGBAvatar/)
 
 Official implementation of CVPR2025 paper "RGBAvatar: Reduced Gaussian Blendshapes for Online Modeling of Head Avatars".
 
