@@ -10,7 +10,7 @@ Official implementation of CVPR2025 paper "RGBAvatar: Reduced Gaussian Blendshap
 1. Clone this repository.
 
    ```
-   git clone https://github.com/LinzhouLi/RGBAvatar.git
+   git clone https://github.com/gapszju/RGBAvatar.git
    cd RGBAvatar
    ```
 
