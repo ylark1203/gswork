@@ -2,7 +2,7 @@
 
 [Paper](https://arxiv.org/pdf/2503.12886) | [Webpage](https://gapszju.github.io/RGBAvatar/)
 
-Official implementation of CVPR2025 paper "RGBAvatar: Reduced Gaussian Blendshapes for Online Modeling of Head Avatars".
+Official implementation of CVPR 2025 Highlight paper "RGBAvatar: Reduced Gaussian Blendshapes for Online Modeling of Head Avatars".
 
 
 ## Installation
@@ -85,6 +85,8 @@ python train_offline.py --subject SUBJECT_NAME --work_name WORK_NAME --config CO
   Whether to output log information during training.
 
 </details>
+
+We provide 12 pretrained avatar models [here](https://1drv.ms/u/c/c605a9d7c777e7ad/EX9KEcOnCgpOp_TWX0yCjO8BZlWfLv_Wbj3HDw6cPXwpIg?e=KJas7Z).
 
 ### Online Training
 
