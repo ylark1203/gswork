@@ -170,4 +170,5 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+output/
 data/FLAME2020/generic_model.pkl

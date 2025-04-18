@@ -91,7 +91,7 @@ class FLAMEDataset(Dataset):
         print("Load images")
 
     def load_camera_params(self, path: str):
-        flame_data = torch.load(os.path.join(path, "00000.frame"))
+        flame_data = torch.load(os.path.join(path, "00000.frame"), weights_only=False)
         self.camera_intri = flame_data['opencv']['K'][0]
         self.camera_extri = np.diag([1.0, -1.0, -1.0, 1.0]) # adjust the camera coordinate
         self.camera_extri[:3,  3] = flame_data['opencv']['t'][0]
@@ -114,7 +114,7 @@ class FLAMEDataset(Dataset):
 
         inv_cam_extri = np.linalg.inv(self.camera_extri)
         for flame_param_path in tqdm(self.flame_param_paths, desc="Loading flame params"):
-            flame_data = torch.load(flame_param_path)
+            flame_data = torch.load(flame_param_path, weights_only=False)
             jaw_pose = torch.from_numpy(flame_data['flame']['jaw']).to(torch.float64)
             eye_pose = torch.from_numpy(flame_data['flame']['eyes']).to(torch.float64)
             eyelid_param = torch.from_numpy(flame_data['flame']['eyelids']).to(torch.float64)

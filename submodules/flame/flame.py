@@ -125,7 +125,7 @@ class FLAME(nn.Module):
         self.register_buffer('v_template', verts)
         self.register_buffer('mouth_v', mouth_v.to(dtype))
 
-        faces = torch.from_numpy(np.array(self.flame_model.f)).to(torch.int64)
+        faces = torch.from_numpy(np.array(self.flame_model.f).astype(np.int64)).to(torch.int64)
         self.register_buffer('faces', faces)
 
         # The shape components and expression
@@ -151,7 +151,7 @@ class FLAME(nn.Module):
         flame_uv_data = np.load(config.flame_uv_path)
         uvs = torch.from_numpy(np.array(flame_uv_data['vt'])).to(dtype)
         self.register_buffer("uvs", uvs)
-        uv_faces = torch.from_numpy(np.array(flame_uv_data['ft'])).to(torch.int64)
+        uv_faces = torch.from_numpy(np.array(flame_uv_data['ft']).astype(np.int64)).to(torch.int64)
         self.register_buffer("uv_faces", uv_faces)
 
         # Landmark embeddings

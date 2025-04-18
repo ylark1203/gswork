@@ -8,3 +8,4 @@ pygame
 roma
 lpips
 tensorboard
+pyyaml
