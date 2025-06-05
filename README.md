@@ -159,11 +159,13 @@ TBD
 ## Citation
 
 ```
-@inproceedings{li2025rgbavatar,
-  title={RGBAvatar: Reduced Gaussian Blendshapes for Online Modeling of Head Avatars},
-  author={Li, Linzhou and Li, Yumeng and Weng, Yanlin and Zheng, Youyi and Zhou, Kun},
-  booktitle={The IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  year={2025},
+@InProceedings{Li_2025_CVPR,
+    author    = {Li, Linzhou and Li, Yumeng and Weng, Yanlin and Zheng, Youyi and Zhou, Kun},
+    title     = {RGBAvatar: Reduced Gaussian Blendshapes for Online Modeling of Head Avatars},
+    booktitle = {Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR)},
+    month     = {June},
+    year      = {2025},
+    pages     = {10747-10757}
 }
 ```
 
