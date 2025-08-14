@@ -14,6 +14,8 @@
 #
 # Contact: mica@tue.mpg.de
 
+from typing import Optional
+
 import pickle
 import numpy as np
 import torch
@@ -355,10 +357,14 @@ class FLAME(nn.Module):
         neck_pose_params: torch.Tensor,
         jaw_pose_params: torch.Tensor, 
         eye_pose_params: torch.Tensor, 
-        eyelid_params: torch.Tensor
+        eyelid_params: Optional[torch.Tensor] = None,
+        root_pose_params: Optional[torch.Tensor] = None,
+        static_offsets: Optional[torch.Tensor] = None
     ):
         batch_size = shape_params.shape[0]
-        I = torch.eye(3, device=shape_params.device, dtype=self.v_template.dtype).unsqueeze(0).unsqueeze(0).repeat(batch_size, 1, 1, 1)
+
+        if root_pose_params is None:
+            root_pose_params = torch.eye(3, device=shape_params.device, dtype=self.v_template.dtype).unsqueeze(0).unsqueeze(0).repeat(batch_size, 1, 1, 1)
 
         # Concatenate identity shape and expression parameters
         betas = torch.cat([shape_params, expression_params], dim=1)
@@ -366,7 +372,7 @@ class FLAME(nn.Module):
         # The pose vector contains global rotation, and neck, jaw, and eyeball rotations
         # full_pose = torch.cat([rot_params, neck_pose_params, jaw_pose_params, eye_pose_params], dim=1)
         full_pose = torch.cat([
-            I, 
+            root_pose_params.reshape(-1, 1, 3, 3), 
             neck_pose_params.reshape(-1, 1, 3, 3),
             jaw_pose_params.reshape(-1, 1, 3, 3), 
             eye_pose_params.reshape(-1, 2, 3, 3)
@@ -374,6 +380,10 @@ class FLAME(nn.Module):
 
         # FLAME models shape and expression deformations as vertex offset from the mean face in 'zero pose', called v_template
         template_vertices = self.v_template.unsqueeze(0).expand(batch_size, -1, -1)
+
+        if static_offsets is not None:
+            template_vertices = template_vertices.contiguous()
+            template_vertices[:, :5023] += static_offsets[:, :5023]
 
         # add eyelid before LBS
         if eyelid_params is not None:

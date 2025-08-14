@@ -130,8 +130,8 @@ class Camera(nn.Module):
         filter_mask = torch.logical_and(points_proj[..., 2] > 0.0, points_proj[..., 2] < 1.0)
         if in_viewport:
             points_proj[..., :2] = points_proj[..., :2] * 0.5 + 0.5
-            points_proj[..., 0] = points_proj[..., 0] * self.height
-            points_proj[..., 1] = points_proj[..., 1] * self.width
+            points_proj[..., 0] = points_proj[..., 0] * self.width
+            points_proj[..., 1] = points_proj[..., 1] * self.height
         return points_proj, filter_mask
     
     def clone(self):

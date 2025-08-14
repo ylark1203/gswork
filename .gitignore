@@ -172,3 +172,4 @@ cython_debug/
 
 output/
 data/FLAME2020/generic_model.pkl
+data/FLAME2023/flame2023.pkl
