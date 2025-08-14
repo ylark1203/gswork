@@ -156,6 +156,48 @@ python render.py --subject SUBJECT_NAME --work_name WORK_NAME
 
 TBD
 
+### Training on Mulit-View Dataset (NeRSemble)
+
+[update on 2025.08.14] We provide training and rendering scripts on NeRSemble dataset, we use the preprocessed data provided by [GaussianAvatars](https://github.com/ShenhanQian/GaussianAvatars). Please set the dataset root path in `config/nersemble.yaml` and put the `flame2023.pkl` file under `data/FLAME2023` folder. The FLAME 2023 model can be downloaded from [FLAME website](https://flame.is.tue.mpg.de/download.php).
+
+```
+python train_offline_nersemble.py --subject SUBJECT_NAME --work_name WORK_NAME --config CONFIG_FILE_PATH
+```
+
+<details>
+<summary><span style="font-weight: bold;">Command Line Arguments for train_offline.py</span></summary>
+
+  #### --subject
+  Subject name for training (`074` by default).
+  #### --work_name
+  A nick name for the experiment, training results will be saved under `output/WORK_NAME`.
+  #### --config
+  Config file path (`config/nersemble.yaml` by default).
+  #### --log
+  Whether to output log information during training.
+
+</details>
+
+```
+python render_nersemble.py --subject SUBJECT_NAME --work_name WORK_NAME
+```
+
+<details>
+<summary><span style="font-weight: bold;">Command Line Arguments for render.py</span></summary>
+
+  #### --subject
+  Subject name for training (`074`  by default).
+  #### --output_dir
+  Path of the expeirment output folder (`output` by default).
+  #### --work_name
+  Name of the experiment to be rendered.
+  #### --white_bg
+  Whether to use white background, back by default.
+  #### --alpha
+  Whether to render the alpha channel.
+
+</details>
+
 ## Citation
 
 ```
