@@ -92,8 +92,6 @@ if __name__ == "__main__":
     parser.add_argument("--subject", type=str, default="074")
     parser.add_argument("--work_name", type=str, default=None)
     parser.add_argument("--config", type=str, default="config/nersemble.yaml")
-    parser.add_argument("--split", type=str, default="train")
-    parser.add_argument("--preload", action="store_true")
     parser.add_argument("--log", action="store_true")
     args = parser.parse_args(sys.argv[1:])
     with open(args.config) as f: config = yaml.load(f, Loader=yaml.FullLoader)
