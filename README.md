@@ -165,7 +165,7 @@ python train_offline_nersemble.py --subject SUBJECT_NAME --work_name WORK_NAME -
 ```
 
 <details>
-<summary><span style="font-weight: bold;">Command Line Arguments for train_offline.py</span></summary>
+<summary><span style="font-weight: bold;">Command Line Arguments for train_offline_nersemble.py</span></summary>
 
   #### --subject
   Subject name for training (`074` by default).
@@ -183,7 +183,7 @@ python render_nersemble.py --subject SUBJECT_NAME --work_name WORK_NAME
 ```
 
 <details>
-<summary><span style="font-weight: bold;">Command Line Arguments for render.py</span></summary>
+<summary><span style="font-weight: bold;">Command Line Arguments for render_nersemble.py</span></summary>
 
   #### --subject
   Subject name for training (`074`  by default).
