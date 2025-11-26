@@ -119,7 +119,7 @@ class GaussianModel:
     
     def get_batch_attributes(self, batch_size: int, blend_weight: Optional[torch.Tensor] = None):
         if blend_weight is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight)
+            blend_weight = self.project_weight(blend_weight) # blend_weight: [10， 129]            
             _xyz, _rotation, _feature_dc = linear_blending(
                 blend_weight,
                 self._xyz, self._rotation, self._feature_dc,

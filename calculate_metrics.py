@@ -8,7 +8,7 @@ from tqdm import tqdm
 import nvdiffrast.torch as dr
 from argparse import ArgumentParser
 from torch.utils.data import DataLoader
-
+import torch.nn.functional as F
 from utils import psnr, ssim, Struct
 from diff_renderer import render_gs_batch
 from model import BindingModel, FLAMEBindingModel, FuHeadBindingModel
@@ -17,7 +17,7 @@ from submodules.flame import FLAME, FlameConfig
 from submodules.fuhead import FuHead
 from camera import IntrinsicsCamera, Camera
 
-
+# python calculate_metrics.py --subject nf_03 --work_name reproduction  --output_dir output/INSTA
 def compute_metrics(dataset: FLAMEDataset, camera: Camera, gaussian_model: BindingModel):
     bg_color = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, device='cuda')
     perceptual_model = lpips.LPIPS(net='vgg').cuda()

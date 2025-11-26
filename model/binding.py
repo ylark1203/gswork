@@ -67,18 +67,18 @@ class BindingModel(GaussianModel):
             uv_faces=self.template_uv_faces,
             size=(self.model_config.tex_size, self.model_config.tex_size),
             glctx=self.glctx
-        )
+        ) # [256, 256, 2], [256, 256, 1], face_uv, face_id建立了从2D 画布上的像素（即高斯点）到 3D 网格表面（Mesh Surface）之间的对应关系。
         face_id = face_id.reshape(-1)
         face_uv = face_uv.reshape(-1, 2)
 
-        self.valid_binding_mask = face_id > 0
+        self.valid_binding_mask = face_id > 0 # 当一个像素格子落在了UV展开图的三角形内部，就变成一个高斯点, 只保留那些有内容的像素，抛弃背景
         face_uv = face_uv[self.valid_binding_mask]
         self.binding_face_id = face_id[self.valid_binding_mask > 0] - 1 # for which face does the gaussian binding.
         self.binding_face_bary = torch.cat( # for the barycentric of the binding face
             [face_uv, 1 - face_uv.sum(dim=-1, keepdim=True)], dim=-1)
 
     @property
-    def num_gaussian(self):
+    def num_gaussian(self): # 最终高斯的数量 = 有效像素的数量
         return self.binding_face_id.shape[0]
 
     def initialize(self):

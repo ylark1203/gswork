@@ -7,7 +7,8 @@ from diff_renderer import BatchGaussianRenderer
 from camera import Camera
 from utils import Struct, l1_loss, ssim, get_expon_lr_func, create_window, _ssim
 from .binding import BindingModel
-
+# from .binding_bbw import BindingModel # bbw
+# from .binding_bbw_wo_binding import BindingModel # 去掉self.binding
 
 class Reconstruction:
     def __init__(self,
@@ -98,7 +99,7 @@ class Reconstruction:
         gt_rgb = gt_rgb * gt_mask + bg_color * (1.0 - gt_mask)
 
         # blend & bind
-        blend_weight = None if self.iteration < self.recon_config.blend_start_iter else blend_weight
+        blend_weight = None if self.iteration < self.recon_config.blend_start_iter else blend_weight # blend_weight: [10, 129]
         gaussian = self.gaussian_model.gaussian_deform_batch(template_mesh, blend_weight)
         self.optimizer.zero_grad(set_to_none = True)
 

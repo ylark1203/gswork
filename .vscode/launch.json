@@ -1,0 +1,41 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "render debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--subject",
+                "subject1",
+                "--work_name", 
+                "debug", 
+                "--output_dir",
+                "output/HR"
+            ]
+        },
+        {
+            "name": "train_offline debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--subject",
+                "bala",
+                "--work_name", 
+                "debug", 
+                "--config",
+                "config/offline.yaml",
+                "--preload"
+            ],
+            "justMyCode": false
+        }
+    ]
+}

@@ -17,7 +17,7 @@ from submodules.fuhead import FuHead
 from camera import IntrinsicsCamera, Camera
 from utils import Struct
 
-
+# python render.py --subject nf_03 --work_name reproduction --output_dir output/INSTA
 def save_image(image_data, output_img_path, index):
     Image.fromarray(image_data).save(os.path.join(output_img_path, "{:0>5d}.png".format(index)))
 

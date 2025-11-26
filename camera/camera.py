@@ -4,10 +4,10 @@ from torch import nn
 import numpy as np
 
 
-def fov2focal(fov: float, pixels: float) -> float:
+def fov2focal(fov: float, pixels: float) -> float: # 将视角场换算为焦距(以像素为单位)
     return pixels / (2 * math.tan(fov / 2))
 
-def focal2fov(focal: float, pixels: float) -> float:
+def focal2fov(focal: float, pixels: float) -> float: # 将焦距换算成视角场
     return 2 * math.atan(pixels / (2 * focal))
 
 
@@ -18,8 +18,8 @@ class Camera(nn.Module):
         pos: np.ndarray = None,   # translation vector, shape: [3]
         width: int = 1024, 
         height: int = 1024, 
-        znear: float = 0.001, 
-        zfar: float = 100.0
+        znear: float = 0.001,   # 近平面
+        zfar: float = 100.0 # 远平面(用于深度归一化)
     ) -> None:
         super(Camera, self).__init__()
 
@@ -33,9 +33,9 @@ class Camera(nn.Module):
         self.fov_x = None
         self.fov_y = None
 
-        if rot is None:
+        if rot is None: # 相机的旋转矩阵
             rot = np.eye(3)
-        if pos is None:
+        if pos is None: # 相机在世界坐标系下的位置
             pos = np.zeros([3])
 
         rot = rot.astype(np.float32) # caution the type from numpy
@@ -51,7 +51,7 @@ class Camera(nn.Module):
         self._update_view2world_matrix()
 
     @property
-    def cx(self):
+    def cx(self):   # # 主点横坐标,光轴在图像平面上的交点横坐标
         return self.width / 2 if self._cx is None else self._cx
     
     @property
@@ -59,7 +59,7 @@ class Camera(nn.Module):
         return self.height / 2 if self._cy is None else self._cy
     
     @property
-    def fx(self):
+    def fx(self): # 焦距（x方向）:每单位相机坐标长度对应多少像素宽度
         return fov2focal(self.fov_x, self.width)
     
     @property
@@ -162,7 +162,7 @@ class Camera(nn.Module):
         print("world2view matrix:", self.get_w2v)
 
 
-class PerspectiveCamera(Camera):
+class PerspectiveCamera(Camera): # 透视相机
     def __init__(
         self,
         fov_y: float = np.pi / 3, 
@@ -185,7 +185,7 @@ class PerspectiveCamera(Camera):
         self._update_projection_matrix()
 
 
-class IntrinsicsCamera(Camera):
+class IntrinsicsCamera(Camera): # 内参相机
     def __init__(
         self, 
         K: np.ndarray = None,   # intrinsic parameters, shape: [3, 3]

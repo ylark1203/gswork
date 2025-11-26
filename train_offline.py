@@ -14,6 +14,7 @@ from model import FLAMEBindingModel, FuHeadBindingModel, Reconstruction, Binding
 from dataset import FLAMEDataset, FuHeadDataset, DataLoader
 from submodules.flame import FLAME, FlameConfig
 from submodules.fuhead import FuHead
+# python train_offline.py --subject bala --work_name bbw2 --config config/offline.yaml --preload
 
 
 def train_offline(
@@ -35,9 +36,9 @@ def train_offline(
     for i in range((iteration + batch_size - 1) // batch_size):
         image, mesh, blend_weight = dataloader.get_batch()
         recon.step(image, mesh, blend_weight)
-        progress_bar.update(batch_size)
+        progress_bar.update(batch_size) # 以batch_size为单位更新progress_bar进度条
 
-    training_fps = iteration / progress_bar.format_dict['elapsed']
+    training_fps = iteration / progress_bar.format_dict['elapsed'] # progress_bar.format_dict['elapsed']: progress_bar的时间
     if log: tb_writer.close()
     progress_bar.close()
     gaussian_model.prune()

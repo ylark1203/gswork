@@ -1,5 +1,5 @@
-data_dir: /home/lilinzhou/dataset/INSTA # Please set your own dataset path
-output_dir: ./output/
+data_dir: /mnt/data/lyl/datasets/INSTA # Please set your own dataset path
+output_dir: /mnt/data/lyl/codes/RGBAvatar/output/INSTA
 template_type: Flame
 
 dataset:

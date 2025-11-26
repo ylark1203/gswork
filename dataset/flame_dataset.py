@@ -136,17 +136,17 @@ class FLAMEDataset(Dataset):
             global_rots.append(global_rot)
             global_transls.append(global_transl)
         
-        self.shapes = torch.cat(shapes, dim=0)
-        self.exps = torch.cat(exps, dim=0)
-        self.eyelid_params = torch.cat(eyelid_params, dim=0)
-        self.global_rots = torch.cat(global_rots, dim=0)
-        self.global_transls = torch.cat(global_transls, dim=0)
+        self.shapes = torch.cat(shapes, dim=0)  # #  [frames, 300]
+        self.exps = torch.cat(exps, dim=0) #  [frames, 100]
+        self.eyelid_params = torch.cat(eyelid_params, dim=0)    # [frames, 2]
+        self.global_rots = torch.cat(global_rots, dim=0)    # [frames, 3, 3]
+        self.global_transls = torch.cat(global_transls, dim=0)  # [frames, 3]
 
-        jaw_poses = torch.cat(jaw_poses, dim=0)
-        eye_poses = torch.cat(eye_poses, dim=0)
-        self.jaw_poses = rotation_6d_to_matrix(jaw_poses.cuda()).cpu()
-        self.eye_poses = rotation_6d_to_matrix(eye_poses.reshape(-1, 2, 6).cuda()).cpu()
-        self.neck_poses = torch.eye(3, dtype=torch.float64).unsqueeze(0).repeat(self.exps.shape[0], 1, 1)
+        jaw_poses = torch.cat(jaw_poses, dim=0) # [frames, 6]
+        eye_poses = torch.cat(eye_poses, dim=0) # [frames, 12]
+        self.jaw_poses = rotation_6d_to_matrix(jaw_poses.cuda()).cpu()  # [frames, 3, 3]
+        self.eye_poses = rotation_6d_to_matrix(eye_poses.reshape(-1, 2, 6).cuda()).cpu()    # [frames, 2, 3, 3]
+        self.neck_poses = torch.eye(3, dtype=torch.float64).unsqueeze(0).repeat(self.exps.shape[0], 1, 1)   # [frames, 3, 3]
         self.pose_transformed = False
         print("Load FLAME params")
 
