@@ -6,9 +6,9 @@ import lpips
 from diff_renderer import BatchGaussianRenderer
 from camera import Camera
 from utils import Struct, l1_loss, ssim, get_expon_lr_func, create_window, _ssim
-from .binding import BindingModel
+# from .binding import BindingModel
 # from .binding_bbw import BindingModel # bbw
-# from .binding_bbw_wo_binding import BindingModel # 只有网格，不用flame参数
+from .binding_bbw_wo_binding import BindingModel # 只有网格，不用flame参数
 
 class Reconstruction:
     def __init__(self,
