@@ -1,3 +1,4 @@
+# 去掉绑定
 from typing import Union, Optional
 from abc import abstractmethod
 
