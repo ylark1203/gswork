@@ -56,66 +56,6 @@ class GaussianModel:
         else:
             return blend_weight_in
 
-    # legacy
-    def get_attributes_torch(self, blend_weight: Optional[torch.Tensor] = None):
-        if blend_weight is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight.unsqueeze(0)) # add batch dim
-            _xyz = linear_blending_torch(self._xyz, blend_weight, self._xyz_b).squeeze(0)
-            _rotation = linear_blending_torch(self._rotation, blend_weight, self._rotation_b).squeeze(0)
-            _feature_dc = linear_blending_torch(self._feature_dc, blend_weight, self._feature_b).squeeze(0)
-            _opacity, _scaling = self._opacity, self._scaling # do not blend opacity and scaling
-        else:
-            _xyz, _rotation, _opacity, _scaling, _feature_dc = self._xyz, self._rotation, self._opacity, self._scaling, self._feature_dc
-        return GaussianAttributes(
-            _xyz, 
-            self.opacity_act(_opacity), 
-            self.scaling_act(_scaling), 
-            self.rotation_act(_rotation), 
-            _feature_dc
-        )
-    
-    # legacy
-    def get_batch_attributes_torch(self, batch_size: int, blend_weight: Optional[torch.Tensor] = None):
-        if blend_weight is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight)
-            _xyz = linear_blending_torch(self._xyz, blend_weight, self._xyz_b)
-            _rotation = linear_blending_torch(self._rotation, blend_weight, self._rotation_b)
-            _feature_dc = linear_blending_torch(self._feature_dc, blend_weight, self._feature_b)
-            _opacity = self._opacity.expand(batch_size, -1, -1)
-            _scaling = self._scaling.expand(batch_size, -1, -1)
-        else:
-            _xyz = self._xyz.expand(batch_size, -1, -1)
-            _rotation = self._rotation.expand(batch_size, -1, -1)
-            _opacity = self._opacity.expand(batch_size, -1, -1)
-            _scaling = self._scaling.expand(batch_size, -1, -1)
-            _feature_dc = self._feature_dc.expand(batch_size, -1, -1, -1)
-        return GaussianAttributes(
-            _xyz, 
-            self.opacity_act(_opacity), 
-            self.scaling_act(_scaling), 
-            self.rotation_act(_rotation), 
-            _feature_dc
-        )
-    
-    def get_attributes(self, blend_weight: Optional[torch.Tensor] = None):
-        if blend_weight is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight.unsqueeze(0)) # add batch dim
-            _xyz , _rotation, _feature_dc = linear_blending( # NOTE: if blend_weight is unsqueezed one more time, it will cause strange rendering results
-                blend_weight,
-                self._xyz, self._rotation, self._feature_dc,
-                self._xyz_b, self._rotation_b, self._feature_b
-            )
-            _xyz , _rotation, _feature_dc = _xyz.squeeze(0), _rotation.squeeze(0), _feature_dc.squeeze(0)
-            _opacity, _scaling = self._opacity, self._scaling # do not blend opacity and scaling
-        else:
-            _xyz, _rotation, _opacity, _scaling, _feature_dc = self._xyz, self._rotation, self._opacity, self._scaling, self._feature_dc
-        return GaussianAttributes(
-            _xyz, 
-            self.opacity_act(_opacity), 
-            self.scaling_act(_scaling), 
-            self.rotation_act(_rotation), 
-            _feature_dc
-        )
     
     def get_batch_attributes(self, batch_size: int, blend_weight: Optional[torch.Tensor] = None):
         if blend_weight is not None and self.model_config.use_blend:

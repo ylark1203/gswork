@@ -18,6 +18,42 @@ from .gaussian import GaussianModel
 import numpy as np
 
 
+def compute_face_tbn_geometry(face_verts: torch.Tensor):
+    """
+    不依赖 UV，纯靠几何形状构建局部坐标系
+    Input:
+        face_verts: [B, F, 3, 3] (Batch, Faces, 3 vertices, xyz)
+    Output:
+        tbn: [B, F, 3, 3]
+    """
+    # 1. 拆解顶点
+    v0, v1, v2 = face_verts.unbind(-2) # [B, F, 3]
+
+    # 2. 计算两条边向量
+    edge1 = v1 - v0  # [B, F, 3]
+    edge2 = v2 - v0  # [B, F, 3]
+
+    # 3. 计算法线 (Normal) - Z轴
+    # 叉乘得到垂直于面的向量
+    normal = torch.cross(edge1, edge2, dim=-1)
+    normal = F.normalize(normal, dim=-1)
+
+    # 4. 计算切线 (Tangent) - X轴
+    # 【关键修改】：直接指定 edge1 为切线方向
+    # 因为 edge1 肯定在三角形面上，所以它垂直于 normal
+    tangent = F.normalize(edge1, dim=-1)
+
+    # 5. 计算副切线 (Bitangent) - Y轴
+    # 利用右手定则：B = N x T
+    bitangent = torch.cross(normal, tangent, dim=-1)
+    # 注意：这里不需要再 normalize，因为 N 和 T 已经归一化且垂直，B 自动是单位向量
+    
+    # 6. 组装矩阵
+    # 形状: [B, F, 3, 3] (列向量形式 [T, B, N])
+    tbn = torch.stack([tangent, bitangent, normal], dim=-1)
+    
+    return tbn
+
 def compute_orthogonality(vectors: torch.Tensor, p=2, norm=False):
     if norm:
         vectors = torch.nn.functional.normalize(vectors, dim=1)
@@ -63,37 +99,16 @@ class BindingModel(GaussianModel):
         self.face_uvs = self.template_uvs[self.template_uv_faces]
         self.glctx = glctx
         self.binding()
-
-        # === 新增：加载 BBW 并计算每个高斯的 handle 权重 ===
-        # bbw_data = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces/5083bbw.npz")
-        bbw_data = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_500/5083_500_bbw.npz")
-        vertex_bbw = bbw_data["vertex_bbw"]          # [V,K]
-        self.handle_indices = torch.from_numpy(
-            bbw_data["handle_indices"]).long()       # [K]
-
-        self.gaussian_bbw = compute_gaussian_bbw_weights(
-            self.template_faces,
-            self.binding_face_id,
-            self.binding_face_bary,
-            vertex_bbw
-        ).to(device='cuda', dtype=torch.float32)     # [N,K]
         
     def binding(self):
-        # binding gs with mesh triangle face
-        face_uv, face_id = compute_rast_info( # FIXME: precision issue across different devices
-            uvs=self.template_uvs,
-            uv_faces=self.template_uv_faces,
-            size=(self.model_config.tex_size, self.model_config.tex_size),
-            glctx=self.glctx
-        )
-        face_id = face_id.reshape(-1)
-        face_uv = face_uv.reshape(-1, 2)
+        
+        face_tbn = compute_face_tbn_geometry(self.template_model)
 
-        self.valid_binding_mask = face_id > 0
-        face_uv = face_uv[self.valid_binding_mask]
-        self.binding_face_id = face_id[self.valid_binding_mask > 0] - 1 # for which face does the gaussian binding.
-        self.binding_face_bary = torch.cat( # for the barycentric of the binding face
-            [face_uv, 1 - face_uv.sum(dim=-1, keepdim=True)], dim=-1)
+        xyz, rotation = mesh_binding(
+            gs.xyz, gs.rotation,
+            mesh_verts, face_tbn,
+            model.binding_face_bary, model.binding_face_id
+        )
 
     @property
     def num_gaussian(self):
