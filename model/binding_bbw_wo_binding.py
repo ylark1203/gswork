@@ -1,5 +1,4 @@
 # 去掉绑定
-# test
 from typing import Union, Optional
 from abc import abstractmethod
 
