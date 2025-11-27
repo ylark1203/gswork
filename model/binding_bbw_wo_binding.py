@@ -260,7 +260,7 @@ class BindingModel(GaussianModel):
         xyz = (Wg.unsqueeze(-1) * HP).sum(dim=2)            # [B,N,3]
 
         # 其他属性仍然用已有的 blendshape 模块
-        gs = self.get_batch_attributes(B, blend_weight)     # [B,N,...]  
+        gs = self.get_batch_attributes(B)     # [B,N,...]  
               
         return GaussianAttributes(xyz, gs.opacity, gs.scaling, gs.rotation, gs.sh)
     
