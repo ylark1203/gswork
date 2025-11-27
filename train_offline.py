@@ -74,7 +74,7 @@ if __name__ == "__main__":
     if config['template_type'] == 'Flame':
         flame_model = FLAME(FlameConfig()).cuda()
         train_dataset = FLAMEDataset(flame_model, data_path, split=args.split, preload=args.preload, **config['dataset'])
-        gaussian_model = FLAMEBindingModel(Struct(**config['model']), flame_model, glctx)
+        gaussian_model = FLAMEBindingModel(Struct(**config['model']), config['train']['batch_size'], flame_model, glctx)
     elif config['template_type'] == 'FuHead':
         fuhead_model = FuHead().cuda()
         train_dataset = FuHeadDataset(fuhead_model, data_path, split=args.split, preload=args.preload, **config['dataset'])

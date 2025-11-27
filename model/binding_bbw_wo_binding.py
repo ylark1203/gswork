@@ -54,6 +54,59 @@ def compute_face_tbn_geometry(face_verts: torch.Tensor):
     
     return tbn
 
+def sample_points_on_mesh(verts, faces, num_samples=100000):
+    """
+    在网格表面均匀撒点，生成 face_id 和 barycentric coords。
+    不依赖 UV，不依赖光栅化。
+    
+    Args:
+        verts: [V, 3] 模板网格的顶点 (Template Mesh)
+        faces: [F, 3] 三角形索引
+        num_samples: 想要多少个高斯点
+    
+    Returns:
+        sample_face_ids: [N] 每个高斯属于哪个三角形
+        sample_barys:    [N, 3] 每个高斯的重心坐标
+    """
+    
+    # --- 1. 计算每个三角形的面积 ---
+    # 取出三角形的三个顶点坐标 [F, 3, 3]
+    # faces 是 long 类型，需要转为索引
+    v0 = verts[faces[:, 0]]
+    v1 = verts[faces[:, 1]]
+    v2 = verts[faces[:, 2]]
+    
+    # 向量叉乘算面积: Area = 0.5 * |(v1-v0) x (v2-v0)|
+    vec_a = v1 - v0
+    vec_b = v2 - v0
+    cross_prod = torch.cross(vec_a, vec_b, dim=-1)
+    areas = 0.5 * torch.norm(cross_prod, dim=-1) # [F]
+    
+    # --- 2. 根据面积概率选择三角形 (Face ID) ---
+    # 面积大的三角形，应该分配更多的高斯点
+    probs = areas / areas.sum()
+    
+    # 按照概率抽取 num_samples 个索引
+    # multinomial 返回的是被选中的 face 的 index
+    sample_face_ids = torch.multinomial(probs, num_samples, replacement=True) # [N]
+    
+    # --- 3. 在选中的三角形内部生成随机重心坐标 (Barycentric) ---
+    # 数学公式：在三角形内均匀采样的重心坐标生成法
+    # r1, r2 是 0~1 的随机数
+    r1 = torch.rand(num_samples, device=verts.device)
+    r2 = torch.rand(num_samples, device=verts.device)
+    
+    # 经典的三角形均匀采样公式 (避免聚集在顶点)
+    sqrt_r1 = torch.sqrt(r1)
+    
+    u = 1.0 - sqrt_r1
+    v = sqrt_r1 * (1.0 - r2)
+    w = sqrt_r1 * r2
+    
+    sample_barys = torch.stack([u, v, w], dim=-1) # [N, 3]
+    
+    return sample_face_ids, sample_barys
+    
 def compute_orthogonality(vectors: torch.Tensor, p=2, norm=False):
     if norm:
         vectors = torch.nn.functional.normalize(vectors, dim=1)
@@ -88,26 +141,31 @@ def QR_orthogonalization(vectors: torch.Tensor) -> torch.Tensor:
 class BindingModel(GaussianModel):
     def __init__(self, 
         model_config: Struct,
+        batch_size: int,
         template_model: Union[FLAME, FuHead],
         glctx: Union[dr.RasterizeGLContext, dr.RasterizeCudaContext]
     ):
         super().__init__(model_config)
+        
+        self.batch_size = batch_size
+
         self.template_model = template_model
-        self.template_uvs = self.template_model.uvs.to(torch.float32)
+        self.mesh_verts = self.template_model.v_template
         self.template_faces = self.template_model.faces.to(torch.int32)
-        self.template_uv_faces = self.template_model.uv_faces.to(torch.int32)
-        self.face_uvs = self.template_uvs[self.template_uv_faces]
+        self.binding_id, self.binding_bary = sample_points_on_mesh(self.mesh_verts, self.template_faces, num_samples=100000)
+        
         self.glctx = glctx
         self.binding()
-        
-    def binding(self):
-        
-        face_tbn = compute_face_tbn_geometry(self.template_model)
 
+    def binding(self):
+        face_verts = self.template_model.v_template[self.template_faces]
+        face_tbn = compute_face_tbn_geometry(face_verts.unsqueeze(0))
+        gs = self.get_batch_attributes(self.batch_size)
+        
         xyz, rotation = mesh_binding(
             gs.xyz, gs.rotation,
-            mesh_verts, face_tbn,
-            model.binding_face_bary, model.binding_face_id
+            self.mesh_verts, face_tbn,
+            self.binding_face_bary, self.binding_face_id
         )
 
     @property
@@ -204,9 +262,7 @@ class BindingModel(GaussianModel):
         # 其他属性仍然用已有的 blendshape 模块
         gs = self.get_batch_attributes(B, blend_weight)     # [B,N,...]  
               
-        rotation = gs.rotation                              # [B,N,4]
-
-        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh)
+        return GaussianAttributes(xyz, gs.opacity, gs.scaling, gs.rotation, gs.sh)
     
     def extract_texture(self):
         result = torch.zeros([self.model_config.tex_size, self.model_config.tex_size, 3], dtype=torch.float32, device='cuda').reshape(-1, 3)
@@ -282,10 +338,11 @@ class BindingModel(GaussianModel):
 class FLAMEBindingModel(BindingModel):
     def __init__(self, 
         model_config: Struct,
+        batch_size: int,
         flame_model: FLAME, 
         glctx: Union[dr.RasterizeGLContext, dr.RasterizeCudaContext]
     ):
-        super().__init__(model_config, flame_model, glctx)
+        super().__init__(model_config, batch_size, flame_model, glctx)
 
     def template_deform(self, deform_params) -> torch.Tensor:
         verts = self.template_model(
