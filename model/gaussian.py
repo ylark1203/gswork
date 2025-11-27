@@ -48,17 +48,11 @@ class GaussianModel:
         self.inv_scaling_act = torch.log
         self.rotation_act = lambda x:  torch.nn.functional.normalize(x, dim=-1)
     
-    def project_weight(self, blend_weight_in: torch.Tensor):
-        blend_weight_in = blend_weight_in[:, :self.model_config.num_basis_in]
-        if self.model_config.use_weight_proj:
-            blend_weight_proj = self.weight_module(blend_weight_in)
-            return blend_weight_proj
-        else:
-            return blend_weight_in
-
-    
     def get_batch_attributes(self, batch_size: int):
-        _xyz, _rotation, _feature_dc = self._xyz, self._rotation, self._feature_dc
+        _xyz = self._xyz.expand(batch_size, -1, -1)
+        _rotation = self._rotation.expand(batch_size, -1, -1)
+        _feature_dc = self._feature_dc.expand(batch_size, -1, -1, -1)
+        
         _opacity = self._opacity.expand(batch_size, -1, -1)
         _scaling = self._scaling.expand(batch_size, -1, -1)
         
