@@ -83,6 +83,7 @@ if __name__ == "__main__":
         raise NotImplementedError
 
     gaussian_model.initialize()
+    gaussian_model.binding()
     camera = IntrinsicsCamera(
         K=train_dataset.camera_intri, 
         R=train_dataset.camera_extri[:3, :3], 

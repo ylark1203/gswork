@@ -152,10 +152,10 @@ class BindingModel(GaussianModel):
         self.template_model = template_model
         self.mesh_verts = self.template_model.v_template
         self.template_faces = self.template_model.faces.to(torch.int32)
-        self.binding_id, self.binding_bary = sample_points_on_mesh(self.mesh_verts, self.template_faces, num_samples=100000)
+        self.binding_face_id, self.binding_face_bary = sample_points_on_mesh(self.mesh_verts, self.template_faces)
         
         self.glctx = glctx
-        self.binding()
+        # self.binding()
 
     def binding(self):
         face_verts = self.template_model.v_template[self.template_faces]
@@ -163,9 +163,12 @@ class BindingModel(GaussianModel):
         gs = self.get_batch_attributes(self.batch_size)
         
         xyz, rotation = mesh_binding(
-            gs.xyz, gs.rotation,
-            self.mesh_verts, face_tbn,
-            self.binding_face_bary, self.binding_face_id
+            gs.xyz.to(torch.float32), 
+            gs.rotation.to(torch.float32),
+            self.mesh_verts.to(torch.float32), 
+            face_tbn.to(torch.float32),
+            self.binding_face_bary.to(torch.float32), 
+            self.binding_face_id.to(torch.int32)
         )
 
     @property
@@ -184,12 +187,6 @@ class BindingModel(GaussianModel):
         rotation = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
         rotation[:, 0] = 1
 
-        # initialize linear bases of gaussian attributes
-        num_basis_blend = self.model_config.num_basis_blend if self.model_config.use_weight_proj else self.model_config.num_basis_in
-        xyz_b = torch.zeros([num_basis_blend, num_gaussian, 3], dtype=torch.float32, device='cuda')
-        feature_b = torch.zeros([num_basis_blend, num_gaussian, 1, 3], dtype=torch.float32, device='cuda')
-        rotation_b = torch.zeros([num_basis_blend, num_gaussian, 4], dtype=torch.float32, device='cuda')
-
         # if gaussian used fast forward
         self.gs_initialized = torch.full([num_gaussian], False, dtype=torch.bool, device='cuda') # [N]
 
@@ -199,10 +196,8 @@ class BindingModel(GaussianModel):
         self._scaling = Parameter(scaling.requires_grad_(True)) # [N, 3]
         self._rotation = Parameter(rotation.requires_grad_(True)) # [N, 4]
         self._feature_dc = Parameter(feature.requires_grad_(True)) # [N, 1, 3]
-
-        self._xyz_b = Parameter(xyz_b.requires_grad_(True))
-        self._feature_b = Parameter(feature_b.requires_grad_(True))
-        self._rotation_b = Parameter(rotation_b.requires_grad_(True))
+        
+        
 
     @torch.no_grad()
     def fast_forward_torch(self, est_color, est_weight):
