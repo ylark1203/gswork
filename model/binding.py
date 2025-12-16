@@ -1,6 +1,6 @@
 from typing import Union, Optional
 from abc import abstractmethod
-    
+
 import torch
 from torch.nn import Parameter
 import nvdiffrast.torch as dr
@@ -129,8 +129,9 @@ class BindingModel(GaussianModel):
 
         # 做逆矩阵：缓存下来
         M_can_inv = torch.inverse(M_can)  # [F,3,3] 退化面片需要处理（可加mask/clamp）
-        self.face_M_can_inv = torch.linalg.pinv(M_can)
+        self.face_M_can_inv = torch.linalg.pinv(M_can) # 模板面片基底矩阵的逆
         self.face_v0_can = face_verts_can[:, 0]
+        
     def binding(self):
         # binding gs with mesh triangle face
         face_uv, face_id = compute_rast_info( # FIXME: precision issue across different devices
@@ -233,9 +234,8 @@ class BindingModel(GaussianModel):
         B = mesh_verts.shape[0]
         tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
 
-        # A_face（raw，不要 normalize T/B）
-        M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # raw
-        A_face = M_def @ self.face_M_can_inv[None, ...].float()                 # [B,F,3,3]
+        M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # 当前帧每个面片的局部基底矩阵
+        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # [B,F,3,3]
         binding_A = A_face[:, self.binding_face_id]                     # [B,N,3,3]
 
         gs = self.get_batch_attributes_torch(B, blend_weight)
@@ -251,11 +251,10 @@ class BindingModel(GaussianModel):
         # 3) 得到协方差：cov3D = L_world L_world^T
         cov3D = L_world @ L_world.transpose(-1, -2)      # [B,N,3,3]
 
-        # offset（照旧）
+        # offset
         binding_face_bary = self.binding_face_bary.unsqueeze(0).unsqueeze(-1)  # [1,N,3,1]
         binding_tri_verts = tri_verts[:, self.binding_face_id]                 # [B,N,3,3]
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
-
 
         # xyz 用仿射（含剪切）
         xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
