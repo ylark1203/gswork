@@ -1,6 +1,6 @@
 from typing import Union, Optional
 from abc import abstractmethod
-
+    
 import torch
 from torch.nn import Parameter
 import nvdiffrast.torch as dr
