@@ -13,11 +13,11 @@
             "console": "integratedTerminal",
             "args": [
                 "--subject",
-                "subject1",
+                "bala",
                 "--work_name", 
                 "debug", 
                 "--output_dir",
-                "output/HR"
+                "output/INSTA"
             ]
         },
         {

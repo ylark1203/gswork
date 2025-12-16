@@ -189,8 +189,11 @@ def compute_face_tbn(face_verts: torch.Tensor, face_uvs: torch.Tensor) -> tuple[
     tangent = f * (deltaUV2[..., 1].unsqueeze(1) * edge1 - deltaUV1[..., 1].unsqueeze(1) * edge2)
     bitangent = f * (-deltaUV2[..., 0].unsqueeze(1) * edge1 + deltaUV1[..., 0].unsqueeze(1) * edge2)
 
-    tbn = torch.stack([tangent, bitangent, normal], dim=-1) # [F, 3, 3]
-    tbn = F.normalize(tbn, dim=-2) # normalize tbn in one step
+    # tbn = torch.stack([tangent, bitangent, normal], dim=-1) # [F, 3, 3]
+    # tbn = F.normalize(tbn, dim=-2) # normalize tbn in one step
+    # 单独对法线进行normalize，t b不进行normalize
+    normal = F.normalize(normal, dim=-1)
+    tbn = torch.stack([tangent, bitangent, normal], dim=-1)
     return tbn
 
 def gather_vert_attributes(

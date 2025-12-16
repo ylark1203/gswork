@@ -12,7 +12,11 @@ class GaussianAttributes:
     scaling: torch.Tensor
     rotation: torch.Tensor
     sh: torch.Tensor
+    cov3D: torch.Tensor = None
 
+def cov3x3_to_6(cov):
+    return torch.stack([cov[...,0,0], cov[...,0,1], cov[...,0,2],
+                        cov[...,1,1], cov[...,1,2], cov[...,2,2]], dim=-1)
 
 def render_gs(
     camera: Camera,
@@ -51,17 +55,24 @@ def render_gs(
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
     # Rasterize visible Gaussians to image. 
+    use_cov = hasattr(gs, "cov3D") and (gs.cov3D is not None)
+
+    cov_precomp = gs.cov3D if use_cov else None
+    scales = None if use_cov else gs.scaling
+    rotations = None if use_cov else gs.rotation
+
     color, alpha, est_color, est_weight, radii = rasterizer(
         means3D=gs.xyz,
         means2D=screenspace_points,
         shs=gs.sh,
         colors_precomp=None,
         opacities=gs.opacity,
-        scales=gs.scaling,
-        rotations=gs.rotation,
-        cov3D_precomp=None,
+        scales=scales,
+        rotations=rotations,
+        cov3D_precomp=cov_precomp,
         target_image=target_image
     )
+
     return {"color": color, "alpha": alpha, "est_color": est_color, "est_weight": est_weight, "radii": radii}
 
 
@@ -99,7 +110,7 @@ def render_gs_batch( # legacy
             image_width=int(camera.width),
             tanfovx=tanfovx,
             tanfovy=tanfovy,
-            bg=bg_color[i],
+            bg=bg_color[i].to(device='cuda:0', non_blocking=True),
             scale_modifier=scaling_modifier,
             viewmatrix=viewmatrix.transpose(0, 1).contiguous().cuda(),
             projmatrix=projmatrix.transpose(0, 1).contiguous().cuda(),
@@ -111,17 +122,23 @@ def render_gs_batch( # legacy
 
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
+        use_cov = hasattr(gs, "cov3D") and (gs.cov3D is not None)
+
         color, alpha, est_color, est_weight, radii = rasterizer(
             means3D=gs.xyz[i],
             means2D=screenspace_points[i],
             shs=gs.sh[i],
             colors_precomp=None,
             opacities=gs.opacity[i],
-            scales=gs.scaling[i],
-            rotations=gs.rotation[i],
-            cov3D_precomp=None,
+            scales=None if use_cov else gs.scaling[i],
+            rotations=None if use_cov else gs.rotation[i],
+            # cov3D_precomp=gs.cov3D[i].contiguous().cuda() if use_cov else None,
+            cov3D_precomp=cov3x3_to_6(gs.cov3D[i]).to('cuda:0') if use_cov else None,
+
             target_image=target_image[i] if target_image is not None else None
         )
+
+
         color_list.append(color)
         alpha_list.append(alpha)
         est_color_list.append(est_color)
