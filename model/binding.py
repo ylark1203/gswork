@@ -128,10 +128,10 @@ class BindingModel(GaussianModel):
         M_can = compute_face_tbn_torch(face_verts_can, self.face_uvs)  # [F,3,3]
 
         # 做逆矩阵：缓存下来
-        M_can_inv = torch.inverse(M_can)  # [F,3,3] 退化面片需要处理（可加mask/clamp）
+        M_can_inv = torch.inverse(M_can)  # [F,3,3] 
         self.face_M_can_inv = torch.linalg.pinv(M_can) # 模板面片基底矩阵的逆
         self.face_v0_can = face_verts_can[:, 0]
-        
+
     def binding(self):
         # binding gs with mesh triangle face
         face_uv, face_id = compute_rast_info( # FIXME: precision issue across different devices
