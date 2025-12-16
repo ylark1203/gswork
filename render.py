@@ -34,7 +34,7 @@ def render(gaussian_model: BindingModel, dataset: FLAMEDataset | FuHeadDataset, 
             mesh = data['mesh'].cuda()
             blend_weight = data['blend_weight'].cuda()
             bs = mesh.shape[0]
-            gaussian = gaussian_model.gaussian_deform_batch(mesh, blend_weight)
+            gaussian = gaussian_model.gaussian_deform_batch_torch(mesh, blend_weight)
             render_pkg = render_gs_batch(camera, bg_color, gaussian)
             if alpha: image = torch.cat([render_pkg["color"], render_pkg["alpha"]], dim=1)
             else: image = render_pkg["color"]
