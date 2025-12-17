@@ -11,8 +11,8 @@ class GaussianAttributes:
     opacity: torch.Tensor
     scaling: torch.Tensor
     rotation: torch.Tensor
-    affine2: torch.Tensor
     sh: torch.Tensor
+    affine2: torch.Tensor
     cov3D: torch.Tensor = None
 
 def cov3x3_to_6(cov):

@@ -37,12 +37,12 @@ train:
     scaling_lr: 0.025
     rotation_lr: 0.005
     feature_lr: 0.0125
-    rotation_lr: 0.005
+    affine2_lr: 0.005
 
     position_b_lr_scale: 0.05
     rotaion_b_lr_scale: 0.5
     feature_b_lr_scale: 0.5
-
+    affine2_b_lr_scale: 0.5
     weight_module_lr: 0.001
 
     lambda_l1: 1.0

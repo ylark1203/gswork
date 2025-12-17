@@ -164,12 +164,14 @@ class BindingModel(GaussianModel):
         feature = torch.zeros([num_gaussian, 1, 3], dtype=torch.float32, device='cuda')
         rotation = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
         rotation[:, 0] = 1
+        affine2 = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
 
         # initialize linear bases of gaussian attributes
         num_basis_blend = self.model_config.num_basis_blend if self.model_config.use_weight_proj else self.model_config.num_basis_in
         xyz_b = torch.zeros([num_basis_blend, num_gaussian, 3], dtype=torch.float32, device='cuda')
         feature_b = torch.zeros([num_basis_blend, num_gaussian, 1, 3], dtype=torch.float32, device='cuda')
         rotation_b = torch.zeros([num_basis_blend, num_gaussian, 4], dtype=torch.float32, device='cuda')
+        affine2_b = torch.zeros([num_basis_blend, num_gaussian, 4], dtype=torch.float32, device='cuda')
 
         # if gaussian used fast forward
         self.gs_initialized = torch.full([num_gaussian], False, dtype=torch.bool, device='cuda') # [N]
@@ -180,10 +182,12 @@ class BindingModel(GaussianModel):
         self._scaling = Parameter(scaling.requires_grad_(True)) # [N, 3]
         self._rotation = Parameter(rotation.requires_grad_(True)) # [N, 4]
         self._feature_dc = Parameter(feature.requires_grad_(True)) # [N, 1, 3]
+        self._affine2 = Parameter(affine2.requires_grad_(True)) 
 
         self._xyz_b = Parameter(xyz_b.requires_grad_(True))
         self._feature_b = Parameter(feature_b.requires_grad_(True))
         self._rotation_b = Parameter(rotation_b.requires_grad_(True))
+        self._affine2_b = Parameter(affine2_b.requires_grad_(True))
 
 
 
@@ -285,7 +289,7 @@ class BindingModel(GaussianModel):
         # binding_R = polar_rotation(binding_A)   # 或者用 normalize tbn 得到的 R
         # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
         rotation = gs.rotation
-        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, cov3D=cov3D)
+        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D)
 
     
     def gaussian_deform(self, mesh_verts: torch.Tensor, blend_weight: Optional[torch.Tensor] = None):
