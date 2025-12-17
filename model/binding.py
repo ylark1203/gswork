@@ -283,8 +283,9 @@ class BindingModel(GaussianModel):
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
 
         # xyz 用仿射（含剪切）
-        xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
-
+        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        
         # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
         # binding_R = polar_rotation(binding_A)   # 或者用 normalize tbn 得到的 R
         # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)

@@ -84,7 +84,7 @@ class GaussianModel:
             _rotation = linear_blending_torch(self._rotation, blend_weight, self._rotation_b)
             _feature_dc = linear_blending_torch(self._feature_dc, blend_weight, self._feature_b)
             _affine2 = linear_blending_torch(self._affine2, blend_weight, self._affine2_b) # [B,N,4]
-
+            # _affine2 = self._affine2
             _opacity = self._opacity.expand(batch_size, -1, -1)
             _scaling = self._scaling.expand(batch_size, -1, -1)
         else:
@@ -100,7 +100,7 @@ class GaussianModel:
             self.scaling_act(_scaling), 
             self.rotation_act(_rotation), 
             _feature_dc,
-            affine2=_affine2
+            _affine2
         )
     
     def get_attributes(self, blend_weight: Optional[torch.Tensor] = None):
@@ -203,13 +203,13 @@ class GaussianModel:
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz', 'opacity']
         for i in range(scaling.shape[1]): l.append('scale_{}'.format(i))
         for i in range(rotation.shape[1]): l.append('rot_{}'.format(i))
-        for i in range(affine2.shape[1]): l.append('affine2_{}'.format(i))
         for i in range(f_dc.shape[1]): l.append('f_dc_{}'.format(i))
         for i in range(f_rest.shape[1]): l.append('f_rest_{}'.format(i))
+        for i in range(affine2.shape[1]): l.append('affine2_{}'.format(i))
         for i in range(xyz_b.shape[1]): l.append('xyz_b_{}'.format(i))
         for i in range(rotation_b.shape[1]): l.append('rot_b_{}'.format(i))
-        for i in range(affine2_b.shape[1]): l.append('affine2_b_{}'.format(i))
         for i in range(f_dc_b.shape[1]): l.append('f_dc_b_{}'.format(i))
+        for i in range(affine2_b.shape[1]): l.append('affine2_b_{}'.format(i))
         l.append('weight_module')
         dtype_full = [(attribute, 'f4') for attribute in l]
 
@@ -220,7 +220,7 @@ class GaussianModel:
             dtype_full.append(('face_bary_2', 'f4'))
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, affine2, f_rest, xyz_b, rotation_b, f_dc_b, affine2_b, linear_module_save), axis=1)
+        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, affine2, xyz_b, rotation_b, f_dc_b, affine2_b, linear_module_save), axis=1)
 
         if binding:
             attributes = np.concatenate((attributes, binding_face_id, binding_face_bary), axis=1)
@@ -287,8 +287,8 @@ class GaussianModel:
         affine2_b_flat = np.stack([
             np.asarray(plydata.elements[0][f"affine2_b_{i}"], dtype=np.float32)
             for i in range(self.model_config.num_basis_blend*4)
-        ], axis=1)  # [N, K*4]
-        affine2_b = affine2_b_flat.reshape(num_gaussian, K, 4).transpose(1, 0, 2)  # [K,N,4]
+        ], axis=1)
+        affine2_b = affine2_b_flat.reshape([num_gaussian, self.model_config.num_basis_blend, 4]).transpose(1,0,2)
 
 
 
