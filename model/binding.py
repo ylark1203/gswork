@@ -235,8 +235,8 @@ class BindingModel(GaussianModel):
         tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
 
         M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # 当前帧每个面片的局部基底矩阵
-        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # [B,F,3,3]
-        binding_A = A_face[:, self.binding_face_id]                     # [B,N,3,3]
+        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # canonical 世界向量 → deformed 世界向量 的线性映射 [B,F,3,3]
+        binding_A = A_face[:, self.binding_face_id]                     # 每个高斯对应的仿射矩阵A [B,N,3,3]
 
         gs = self.get_batch_attributes_torch(B, blend_weight)
 
