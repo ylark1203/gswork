@@ -11,6 +11,7 @@ class GaussianAttributes:
     opacity: torch.Tensor
     scaling: torch.Tensor
     rotation: torch.Tensor
+    affine2: torch.Tensor
     sh: torch.Tensor
     cov3D: torch.Tensor = None
 

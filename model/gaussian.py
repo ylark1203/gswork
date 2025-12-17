@@ -26,6 +26,7 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._feature_dc = torch.empty(0)
+        self._affine2 = torch.empty(0)
 
         self._xyz_b = torch.empty(0)
         self._feature_b = torch.empty(0)
@@ -83,18 +84,21 @@ class GaussianModel:
             _feature_dc = linear_blending_torch(self._feature_dc, blend_weight, self._feature_b)
             _opacity = self._opacity.expand(batch_size, -1, -1)
             _scaling = self._scaling.expand(batch_size, -1, -1)
+            _affine2 = self._affine2.unsqueeze(0).expand(batch_size, -1, -1)  # [B,N,4]
         else:
             _xyz = self._xyz.expand(batch_size, -1, -1)
             _rotation = self._rotation.expand(batch_size, -1, -1)
             _opacity = self._opacity.expand(batch_size, -1, -1)
             _scaling = self._scaling.expand(batch_size, -1, -1)
             _feature_dc = self._feature_dc.expand(batch_size, -1, -1, -1)
+            _affine2 = self._affine2.unsqueeze(0).expand(batch_size, -1, -1)  # [B,N,4]
         return GaussianAttributes(
             _xyz, 
             self.opacity_act(_opacity), 
             self.scaling_act(_scaling), 
             self.rotation_act(_rotation), 
-            _feature_dc
+            _feature_dc,
+            affine2=affine2
         )
     
     def get_attributes(self, blend_weight: Optional[torch.Tensor] = None):
@@ -153,7 +157,8 @@ class GaussianModel:
             {'params': [self._opacity], 'lr': args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': args.rotation_lr, "name": "rotation"},
-            {'params': [self._feature_dc], 'lr': args.feature_lr, "name": "f_dc"}
+            {'params': [self._feature_dc], 'lr': args.feature_lr, "name": "f_dc"},
+            {'params': [self._affine2], 'lr': args.affine_lr, "name": "affine2"}
         ]
         bs_params = [
             {'params': [self._xyz_b], 'lr': args.position_b_lr_scale * args.position_lr * args.scene_extent, "name": "xyz_b"},

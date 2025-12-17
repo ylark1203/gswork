@@ -240,13 +240,35 @@ class BindingModel(GaussianModel):
 
         gs = self.get_batch_attributes_torch(B, blend_weight)
 
+        # gs.affine2: [B,N,4] -> (a,b,c,d)
+        a, b, c, d = gs.affine2.unbind(-1)
+
+        # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
+        # 例如限制到 [-0.2, 0.2]
+        limit = 0.2
+        b = limit * torch.tanh(b)
+        c = limit * torch.tanh(c)
+
+        # 对角用 exp 保证正（更稳定）
+        aa = torch.exp(limit * torch.tanh(a))
+        dd = torch.exp(limit * torch.tanh(d))
+
+        A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
+        A_res[..., 0, 0] = aa
+        A_res[..., 0, 1] = b
+        A_res[..., 1, 0] = c
+        A_res[..., 1, 1] = dd
+        A_res[..., 2, 2] = 1.0
+
+        A_total = binding_A @ A_res   # [B,N,3,3]
+
         # 1) 先得到每个高斯的局部椭球矩阵 L_local = R @ diag(s)
         R_g = quaternion_to_matrix(gs.rotation)          # [B,N,3,3]
         S_g = torch.diag_embed(gs.scaling)               # [B,N,3,3]
         L_local = R_g @ S_g                              # [B,N,3,3]
 
         # 2) 让椭球随仿射变形：L_world = A @ L_local
-        L_world = binding_A @ L_local                    # [B,N,3,3]
+        L_world = A_total @ L_local                    # [B,N,3,3]
 
         # 3) 得到协方差：cov3D = L_world L_world^T
         cov3D = L_world @ L_world.transpose(-1, -2)      # [B,N,3,3]
@@ -257,7 +279,7 @@ class BindingModel(GaussianModel):
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
 
         # xyz 用仿射（含剪切）
-        xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
 
         # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
         # binding_R = polar_rotation(binding_A)   # 或者用 normalize tbn 得到的 R
