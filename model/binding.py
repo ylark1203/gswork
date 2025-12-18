@@ -239,8 +239,8 @@ class BindingModel(GaussianModel):
         tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
 
         M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # 当前帧每个面片的局部基底矩阵
-        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # [B,F,3,3]
-        binding_A = A_face[:, self.binding_face_id]                     # [B,N,3,3]
+        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # self.face_M_can_inv: 模板canonical基底矩阵地逆， A_face: 从canonical到deformed变换矩阵 [B,F,3,3]
+        binding_A = A_face[:, self.binding_face_id]                     # 每个高斯对应的仿射矩阵A [B,N,3,3]
 
         gs = self.get_batch_attributes_torch(B, blend_weight)
 
@@ -250,11 +250,11 @@ class BindingModel(GaussianModel):
         # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
         # 例如限制到 [-0.2, 0.2]
         limit = 0.2
-        b = limit * torch.tanh(b)
+        b = limit * torch.tanh(b) # b、c是剪切项
         c = limit * torch.tanh(c)
 
         # 对角用 exp 保证正（更稳定）
-        aa = torch.exp(limit * torch.tanh(a))
+        aa = torch.exp(limit * torch.tanh(a)) # aa dd是缩放项
         dd = torch.exp(limit * torch.tanh(d))
 
         A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
