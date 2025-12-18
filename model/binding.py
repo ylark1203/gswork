@@ -249,13 +249,18 @@ class BindingModel(GaussianModel):
 
         # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
         # 例如限制到 [-0.2, 0.2]
-        limit = 0.05
-        b = limit * torch.tanh(b) # b、c是剪切项
-        c = limit * torch.tanh(c)
+        limit = 0.1
+        # b = limit * torch.tanh(b) # b、c是剪切项
+        # c = limit * torch.tanh(c)
 
-        # 对角用 exp 保证正（更稳定）
-        aa = torch.exp(limit * torch.tanh(a)) # aa dd是缩放项
-        dd = torch.exp(limit * torch.tanh(d))
+        # # 对角用 exp 保证正（更稳定）
+        # aa = torch.exp(limit * torch.tanh(a)) # aa dd是缩放项
+        # dd = torch.exp(limit * torch.tanh(d))
+
+        aa = 1.0 + limit * torch.tanh(a)
+        dd = 1.0 + limit * torch.tanh(d)
+        b  =       limit * torch.tanh(b)
+        c  =       limit * torch.tanh(c)
 
         A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
         A_res[..., 0, 0] = aa

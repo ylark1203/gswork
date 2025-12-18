@@ -1,12 +1,12 @@
-data_dir: /mnt/data/lyl/datasets/INSTA # Please set your own dataset path
-output_dir: /mnt/data/lyl/codes/RGBAvatar/output/INSTA
+data_dir: /mnt/data/lyl/datasets/HR # Please set your own dataset path
+output_dir: /mnt/data/lyl/codes/RGBAvatar/output/HR
 template_type: Flame
 
 dataset:
   pin_memory: True
   use_shape_weight: True
   use_pose_weight: True
-
+  HQ: True
 model:
   tex_size: 256
   num_basis_in: 129

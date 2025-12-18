@@ -108,6 +108,7 @@ class Reconstruction:
         image, alpha = render_pkg["color"], render_pkg["alpha"]
 
         # loss
+        lambda_shear = 0 if self.iteration < 6000 else self.recon_config.lambda_shear
         l1_loss_val = l1_loss(image, gt_rgb) if self.recon_config.lambda_l1 > 0.0 else 0.0
         ssim_loss_val = self.ssim_loss(image, gt_rgb) if self.recon_config.lambda_ssim > 0.0 else 0.0
         lpips_loss_val = self.perceptual_loss(image, gt_rgb) if self.recon_config.lambda_lpips > 0.0 else 0.0
@@ -118,9 +119,9 @@ class Reconstruction:
             self.recon_config.lambda_ssim * ssim_loss_val + \
             self.recon_config.lambda_lpips * lpips_loss_val + \
             self.recon_config.lambda_alpha * alpha_loss_val + \
-            self.recon_config.lambda_sparsity * sparsity_loss_val +\
-            self.recon_config.lambda_orth * orth_loss_val +\
-            self.recon_config.lambda_shear * shear_loss
+            self.recon_config.lambda_sparsity * sparsity_loss_val + \
+            self.recon_config.lambda_orth * orth_loss_val + \
+            lambda_shear * shear_loss
         
         # optimize
         total_loss.backward()
