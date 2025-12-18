@@ -51,3 +51,4 @@ train:
     lambda_alpha: 0.0
     lambda_sparsity: 0.0
     lambda_orth: 0.0
+    lambda_shear: 0.1

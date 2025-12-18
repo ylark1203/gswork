@@ -100,7 +100,7 @@ class Reconstruction:
 
         # blend & bind
         blend_weight = None if self.iteration < self.recon_config.blend_start_iter else blend_weight # blend_weight: [10, 129]
-        gaussian = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
+        gaussian, shear_loss = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
         self.optimizer.zero_grad(set_to_none = True)
 
         # batch render
@@ -119,7 +119,8 @@ class Reconstruction:
             self.recon_config.lambda_lpips * lpips_loss_val + \
             self.recon_config.lambda_alpha * alpha_loss_val + \
             self.recon_config.lambda_sparsity * sparsity_loss_val +\
-            self.recon_config.lambda_orth * orth_loss_val
+            self.recon_config.lambda_orth * orth_loss_val +\
+            self.recon_config.lambda_shear * shear_loss
         
         # optimize
         total_loss.backward()

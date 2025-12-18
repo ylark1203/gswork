@@ -249,7 +249,7 @@ class BindingModel(GaussianModel):
 
         # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
         # 例如限制到 [-0.2, 0.2]
-        limit = 0.2
+        limit = 0.05
         b = limit * torch.tanh(b) # b、c是剪切项
         c = limit * torch.tanh(c)
 
@@ -290,7 +290,9 @@ class BindingModel(GaussianModel):
         # binding_R = polar_rotation(binding_A)   # 或者用 normalize tbn 得到的 R
         # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
         rotation = gs.rotation
-        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D)
+
+        reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)        
+        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
 
     
     def gaussian_deform(self, mesh_verts: torch.Tensor, blend_weight: Optional[torch.Tensor] = None):
