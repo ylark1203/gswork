@@ -61,24 +61,40 @@ def compute_orthogonality(vectors: torch.Tensor, p=2, norm=False):
 #         inv_sqrt = evecs @ torch.diag_embed(evals.rsqrt()) @ evecs.transpose(-1,-2)
 #         R = A @ inv_sqrt
 #         return R
-def polar_rotation(A, eps=1e-6):
-    # A: [...,3,3]
-    # 先把非有限数清掉（止血）
-    A = torch.nan_to_num(A, nan=0.0, posinf=0.0, neginf=0.0)
 
-    AtA = A.transpose(-1, -2) @ A
+# def polar_rotation(A, eps=1e-6):
+#     # A: [...,3,3]
+#     # 先把非有限数清掉（止血）
+#     A = torch.nan_to_num(A, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # SPD 稳定：加 eps*I
-    I = torch.eye(3, device=A.device, dtype=A.dtype)
-    AtA = AtA + eps * I
+#     AtA = A.transpose(-1, -2) @ A
 
-    evals, evecs = torch.linalg.eigh(AtA)     # 这里就不容易炸了
-    evals = torch.clamp(evals, min=eps)
-    inv_sqrt = evecs @ torch.diag_embed(evals.rsqrt()) @ evecs.transpose(-1, -2)
-    R = A @ inv_sqrt
+#     # SPD 稳定：加 eps*I
+#     I = torch.eye(3, device=A.device, dtype=A.dtype)
+#     AtA = AtA + eps * I
+
+#     evals, evecs = torch.linalg.eigh(AtA)     # 这里就不容易炸了
+#     evals = torch.clamp(evals, min=eps)
+#     inv_sqrt = evecs @ torch.diag_embed(evals.rsqrt()) @ evecs.transpose(-1, -2)
+#     R = A @ inv_sqrt
+#     return R
+
+def polar_rotation(A: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """
+    A: [..., 3, 3]
+    return R: [..., 3, 3]  (最接近 A 的旋转矩阵)
+    """
+    U, S, Vh = torch.linalg.svd(A)          # A = U diag(S) Vh
+    R = U @ Vh
+
+    # 处理 det(R) = -1 的情况（反射），把最后一列翻转
+    det = torch.det(R)
+    mask = det < 0
+    if mask.any():
+        U2 = U.clone()
+        U2[..., :, -1] *= -1
+        R = U2 @ Vh
     return R
-
-
 
 def Schmidt_orthogonalization(vectors: torch.Tensor) -> torch.Tensor:
     num_vectors, vector_dim = vectors.shape
@@ -246,10 +262,11 @@ class BindingModel(GaussianModel):
 
         # gs.affine2: [B,N,4] -> (a,b,c,d)
         a, b, c, d = gs.affine2.unbind(-1)
-
+        b = 0
+        c = 0
         # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
         # 例如限制到 [-0.2, 0.2]
-        limit = 0.1
+        limit = 0.05
         # b = limit * torch.tanh(b) # b、c是剪切项
         # c = limit * torch.tanh(c)
 
@@ -259,8 +276,8 @@ class BindingModel(GaussianModel):
 
         aa = 1.0 + limit * torch.tanh(a)
         dd = 1.0 + limit * torch.tanh(d)
-        b  =       limit * torch.tanh(b)
-        c  =       limit * torch.tanh(c)
+        # b  =       limit * torch.tanh(b)
+        # c  =       limit * torch.tanh(c)
 
         A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
         A_res[..., 0, 0] = aa
@@ -288,15 +305,16 @@ class BindingModel(GaussianModel):
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
 
         # xyz 用仿射（含剪切）
-        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
-        xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        # xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
         
         # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
-        # binding_R = polar_rotation(binding_A)   # 或者用 normalize tbn 得到的 R
+        # binding_R = polar_rotation(A_total)   # 或者用 normalize tbn 得到的 R
         # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
         rotation = gs.rotation
 
-        reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)        
+        # reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
+        reg = (aa-1).pow(2) + (dd-1).pow(2)          
         return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
 
     
