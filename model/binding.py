@@ -52,6 +52,39 @@ def compute_orthogonality(vectors: torch.Tensor, p=2, norm=False):
     triu_mat = torch.triu(mat, diagonal=1)
     return triu_mat.norm(p=p)
 
+def build_cholesky_residual_2d(gs_affine2: torch.Tensor,
+                            diag_limit: float = 0.2,
+                            offdiag_limit: float = 0.2):
+    """
+    gs_affine2: [B, N, 4] or [B, N, 3]
+    use first 3 dims as (p, q, r)
+    Returns:
+    A_res: [B, N, 3, 3]  with 2x2 lower-triangular in xy plane, z untouched
+    reg:   scalar reg term (mean)
+    """
+    p = gs_affine2[..., 0]  # controls l11
+    q = gs_affine2[..., 1]  # controls l21
+    r = gs_affine2[..., 2]  # controls l22
+
+    # positive diagonals (close to 1 initially)
+    # exp(tanh) keeps it >0 and bounded in log-space
+    l11 = torch.exp(diag_limit * torch.tanh(p))
+    l22 = torch.exp(diag_limit * torch.tanh(r))
+
+    # off-diagonal bounded
+    l21 = offdiag_limit * torch.tanh(q)
+
+    B, N = gs_affine2.shape[0], gs_affine2.shape[1]
+    A_res = torch.zeros((B, N, 3, 3), device=gs_affine2.device, dtype=gs_affine2.dtype)
+    A_res[..., 0, 0] = l11
+    A_res[..., 1, 0] = l21
+    A_res[..., 1, 1] = l22
+    A_res[..., 2, 2] = 1.0
+
+    # regularize towards identity in a stable way (log-diag near 0, offdiag near 0)
+    reg = (torch.log(l11).pow(2) + torch.log(l22).pow(2) + l21.pow(2)).mean()
+
+    return A_res, reg
 
 # def polar_rotation(A, eps=1e-6):
 #         # A: [...,3,3]
@@ -254,67 +287,50 @@ class BindingModel(GaussianModel):
         B = mesh_verts.shape[0]
         tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
 
-        M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # 当前帧每个面片的局部基底矩阵
-        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # self.face_M_can_inv: 模板canonical基底矩阵地逆， A_face: 从canonical到deformed变换矩阵 [B,F,3,3]
-        binding_A = A_face[:, self.binding_face_id]                     # 每个高斯对应的仿射矩阵A [B,N,3,3]
+        M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)                 # [B,F,3,3]
+        A_face = M_def @ self.face_M_can_inv[None, ...].float()                  # [B,F,3,3]
+        binding_A = A_face[:, self.binding_face_id]                              # [B,N,3,3]
 
-        gs = self.get_batch_attributes_torch(B, blend_weight)
+        gs = self.get_batch_attributes_torch(B, blend_weight)                    # xyz, scaling, affine2, ...
 
-        # gs.affine2: [B,N,4] -> (a,b,c,d)
-        a, b, c, d = gs.affine2.unbind(-1)
+        # ---- SPD-safe residual (Cholesky in XY) ----
+        A_res, reg_aff = build_cholesky_residual_2d(
+            gs.affine2, diag_limit=0.2, offdiag_limit=0.2
+        )  # A_res: [B,N,3,3]
 
-        # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
-        # 例如限制到 [-0.2, 0.2]
-        limit = 0.01
-        # b = limit * torch.tanh(b) # b、c是剪切项
-        # c = limit * torch.tanh(c)
+        A_total = binding_A @ A_res                                              # [B,N,3,3]
 
-        # # 对角用 exp 保证正（更稳定）
-        # aa = torch.exp(limit * torch.tanh(a)) # aa dd是缩放项
-        # dd = torch.exp(limit * torch.tanh(d))
+        # ---- cov3D only (no need to use rotation if rasterizer consumes cov3D) ----
+        # local covariance diag(s^2)
+        cov_local = torch.diag_embed(gs.scaling ** 2)                            # [B,N,3,3]
+        cov3D = A_total @ cov_local @ A_total.transpose(-1, -2)                  # [B,N,3,3]
 
-        aa = 1.0 + limit * torch.tanh(a)
-        dd = 1.0 + limit * torch.tanh(d)
-        b  =       limit * torch.tanh(b)
-        c  =       limit * torch.tanh(c)
+        # numerical safety (optional but recommended)
+        eps = 1e-6
+        eye = torch.eye(3, device=cov3D.device, dtype=cov3D.dtype)[None, None]
+        cov3D = cov3D + eps * eye
 
-        A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
-        A_res[..., 0, 0] = aa
-        A_res[..., 0, 1] = b
-        A_res[..., 1, 0] = c
-        A_res[..., 1, 1] = dd
-        A_res[..., 2, 2] = 1.0
+        # ---- offset (same as you) ----
+        binding_face_bary = self.binding_face_bary.unsqueeze(0).unsqueeze(-1)    # [1,N,3,1]
+        binding_tri_verts = tri_verts[:, self.binding_face_id]                   # [B,N,3,3]
+        binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)        # [B,N,3]
 
-        A_total = binding_A @ A_res   # [B,N,3,3]
+        # xyz: two options
+        # Option A (recommended for consistency): mean follows the same A_total
+        xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
 
-        # 1) 先得到每个高斯的局部椭球矩阵 L_local = R @ diag(s)
-        R_g = quaternion_to_matrix(gs.rotation)          # [B,N,3,3]
-        S_g = torch.diag_embed(gs.scaling)               # [B,N,3,3]
-        L_local = R_g @ S_g                              # [B,N,3,3]
+        # Option B (if you insist residual only affects shape, not mean):
+        # xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
 
-        # 2) 让椭球随仿射变形：L_world = A @ L_local
-        L_world = A_total @ L_local                    # [B,N,3,3]
-
-        # 3) 得到协方差：cov3D = L_world L_world^T
-        cov3D = L_world @ L_world.transpose(-1, -2)      # [B,N,3,3]
-
-        # offset
-        binding_face_bary = self.binding_face_bary.unsqueeze(0).unsqueeze(-1)  # [1,N,3,1]
-        binding_tri_verts = tri_verts[:, self.binding_face_id]                 # [B,N,3,3]
-        binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
-
-        # xyz 用仿射（含剪切）
-        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
-        xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
-        
-        # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
-        # binding_R = polar_rotation(A_total)   # 或者用 normalize tbn 得到的 R
-        # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
+        # rotation is unused by rasterizer if you pass cov3D and set rotations=None
         rotation = gs.rotation
 
-        reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
-        # reg = (aa-1).pow(2) + (dd-1).pow(2)          
-        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
+        # total regularization you can weight outside
+        reg = reg_aff
+
+        return GaussianAttributes(
+            xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D
+        ), reg
 
     
     def gaussian_deform(self, mesh_verts: torch.Tensor, blend_weight: Optional[torch.Tensor] = None):
