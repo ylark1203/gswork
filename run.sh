@@ -1,5 +1,5 @@
-python train_offline.py --subject biden --work_name learnableshear --config config/offline.yaml --preload
-python calculate_metrics.py --subject biden --work_name learnableshear  --output_dir output/INSTA
+python train_offline.py --subject biden --work_name learnableshear_limit0.01 --config config/offline.yaml --preload
+python calculate_metrics.py --subject biden --work_name learnableshear_limit0.01  --output_dir output/INSTA
 
 # python train_offline.py --subject justin --work_name learnableshear --config config/offline.yaml --preload
 # python calculate_metrics.py --subject justin --work_name learnableshear  --output_dir output/INSTA

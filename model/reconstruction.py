@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from torch.optim import Adam, AdamW
 from torch.utils.tensorboard import SummaryWriter
 import lpips
@@ -30,6 +31,7 @@ class Reconstruction:
             num_gaussians=gaussian_model.num_gaussian,
             batch_size=batch_size
         )
+
         gs_params, bs_params, adapter_params = gaussian_model.training_params(self.recon_config)
         params = gs_params + bs_params + adapter_params
         self.optimizer = Adam(params=params, lr=0.0, eps=1e-15)

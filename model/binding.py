@@ -262,11 +262,10 @@ class BindingModel(GaussianModel):
 
         # gs.affine2: [B,N,4] -> (a,b,c,d)
         a, b, c, d = gs.affine2.unbind(-1)
-        b = 0
-        c = 0
+
         # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
         # 例如限制到 [-0.2, 0.2]
-        limit = 0.05
+        limit = 0.01
         # b = limit * torch.tanh(b) # b、c是剪切项
         # c = limit * torch.tanh(c)
 
@@ -276,8 +275,8 @@ class BindingModel(GaussianModel):
 
         aa = 1.0 + limit * torch.tanh(a)
         dd = 1.0 + limit * torch.tanh(d)
-        # b  =       limit * torch.tanh(b)
-        # c  =       limit * torch.tanh(c)
+        b  =       limit * torch.tanh(b)
+        c  =       limit * torch.tanh(c)
 
         A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
         A_res[..., 0, 0] = aa
@@ -305,16 +304,16 @@ class BindingModel(GaussianModel):
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
 
         # xyz 用仿射（含剪切）
-        xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
-        # xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
         
         # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
         # binding_R = polar_rotation(A_total)   # 或者用 normalize tbn 得到的 R
         # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
         rotation = gs.rotation
 
-        # reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
-        reg = (aa-1).pow(2) + (dd-1).pow(2)          
+        reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
+        # reg = (aa-1).pow(2) + (dd-1).pow(2)          
         return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
 
     
