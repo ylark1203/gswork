@@ -85,6 +85,8 @@ class Reconstruction:
                 param_group['lr'] = self.recon_config.feature_b_lr_scale * self.recon_config.feature_lr * self.global_lr_scale
             elif param_group["name"] == "weight_module": 
                 param_group['lr'] = self.recon_config.weight_module_lr * self.global_lr_scale
+            elif param_group["name"] == "weight_to_xyz": 
+                param_group['lr'] = self.recon_config.weight_to_xyz_lr * self.recon_config.weight_to_xyz_lr_scale
 
     def step(self, 
         gt_image: torch.Tensor, 

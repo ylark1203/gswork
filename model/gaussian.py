@@ -10,6 +10,9 @@ from diff_renderer import GaussianAttributes
 from diff_gaussian_rasterization import linear_blending
 from utils import Struct, flatten_model_params, load_flattened_model_params, inverse_sigmoid
 
+import os
+
+
 # legacy
 def linear_blending_torch(basis: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
     num_batch, num_bias = weight.shape
@@ -44,6 +47,14 @@ class GaussianModel:
         else:
             self.weight_module = nn.Linear(self.model_config.num_basis_in, self.model_config.num_basis_blend, device='cuda')
 
+        self.weight_to_xyz = nn.Sequential( # 用flame参数预测一个偏移量
+                nn.Linear(self.model_config.num_basis_in, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, 60349*3)
+            ).cuda()
+        
         self.opacity_act = torch.sigmoid
         self.inv_opactity_act = inverse_sigmoid
         self.scaling_act = torch.exp
@@ -77,15 +88,18 @@ class GaussianModel:
         )
     
     # legacy
-    def get_batch_attributes_torch(self, batch_size: int, blend_weight: Optional[torch.Tensor] = None):
-        if blend_weight is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight)
+    def get_batch_attributes_torch(self, batch_size: int, blend_weight_params: Optional[torch.Tensor] = None):
+        if blend_weight_params is not None and self.model_config.use_blend:
+            blend_weight = self.project_weight(blend_weight_params)
+            
             _xyz = linear_blending_torch(self._xyz, blend_weight, self._xyz_b)
+            _xyz = _xyz + self.weight_to_xyz(blend_weight_params).reshape(batch_size, -1, 3)*0.1
+            
             _rotation = linear_blending_torch(self._rotation, blend_weight, self._rotation_b)
             _feature_dc = linear_blending_torch(self._feature_dc, blend_weight, self._feature_b)
             _affine2 = linear_blending_torch(self._affine2, blend_weight, self._affine2_b) # [B,N,4]
-            # _affine2 = self._affine2
-            _opacity = self._opacity.expand(batch_size, -1, -1)
+            # _affine2 = self._affine2.expand(batch_size, -1, -1)
+            _opacity = self._opacity.expand(batch_size, -1, -1)            
             _scaling = self._scaling.expand(batch_size, -1, -1)
         else:
             _xyz = self._xyz.expand(batch_size, -1, -1)
@@ -169,7 +183,8 @@ class GaussianModel:
             {'params': [self._affine2_b], 'lr': args.affine2_b_lr_scale * args.affine2_lr, "name": "affine2_b"}
         ]
         adapter_params = [
-            {'params': self.weight_module.parameters(), 'lr': args.weight_module_lr, "name": "weight_module"}
+            {'params': self.weight_module.parameters(), 'lr': args.weight_module_lr, "name": "weight_module"},
+            {'params': self.weight_to_xyz.parameters(), 'lr': args.weight_to_xyz_lr, "name": "weight_to_xyz"},
         ]
         return gs_params, bs_params, adapter_params
 
@@ -228,7 +243,12 @@ class GaussianModel:
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
-
+        
+        torch.save({
+        "weight_to_xyz": self.weight_to_xyz.state_dict(),
+        # "weight_to_rotation":  self.weight_to_rotation.state_dict()
+        }, os.path.join(os.path.dirname(path), "mlp.pt"))
+        
     @torch.no_grad()
     def load_ply(self, path: str, train: bool = False):
         plydata = PlyData.read(path)
@@ -331,7 +351,10 @@ class GaussianModel:
         self._rotation_b = torch.from_numpy(rotation_b).transpose(0, 1).contiguous().cuda()
         self._feature_b = torch.from_numpy(f_dc_b).transpose(0, 1).contiguous().cuda()
         self._affine2_b = torch.from_numpy(affine2_b).contiguous().cuda()
-
+        
+        ckpt = torch.load(os.path.join(os.path.dirname(path), "mlp.pt"))
+        self.weight_to_xyz.load_state_dict(ckpt["weight_to_xyz"])
+        
         if train:
             self._xyz = Parameter(self._xyz.requires_grad_(True))
             self._opacity = Parameter(self._opacity.requires_grad_(True))

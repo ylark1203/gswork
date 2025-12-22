@@ -304,7 +304,7 @@ class BindingModel(GaussianModel):
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
 
         # xyz 用仿射（含剪切）
-        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets # 效果差
         xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
         
         # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
@@ -313,7 +313,6 @@ class BindingModel(GaussianModel):
         rotation = gs.rotation
 
         reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
-        # reg = (aa-1).pow(2) + (dd-1).pow(2)          
         return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
 
     

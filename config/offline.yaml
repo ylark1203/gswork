@@ -37,7 +37,7 @@ train:
     scaling_lr: 0.025
     rotation_lr: 0.005
     feature_lr: 0.0125
-    affine2_lr: 0.0001
+    affine2_lr: 0.005 # 定死
 
     position_b_lr_scale: 0.05
     rotaion_b_lr_scale: 0.5
@@ -45,10 +45,13 @@ train:
     affine2_b_lr_scale: 0.5
     weight_module_lr: 0.001
 
+    weight_to_xyz_lr: 0.001
+    weight_to_xyz_lr_scale: 0.9
+
     lambda_l1: 1.0
     lambda_ssim: 0.0
     lambda_lpips: 0.0
     lambda_alpha: 0.0
     lambda_sparsity: 0.0
     lambda_orth: 0.0
-    lambda_shear: 0.02
+    lambda_shear: 0.2

@@ -45,6 +45,10 @@ train:
     affine2_b_lr_scale: 0.5
     weight_module_lr: 0.001
 
+    weight_to_xyz_lr: 0.001
+    weight_to_xyz_lr_scale: 0.9
+    weight_to_rotation_lr: 0.001
+
     lambda_l1: 1.0
     lambda_ssim: 0.0
     lambda_lpips: 0.0
