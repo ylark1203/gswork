@@ -1,9 +1,9 @@
 from moviepy.editor import VideoFileClip, clips_array
 
 # 读取视频
-video1 = VideoFileClip("/mnt/data/lyl/codes/RGBAvatar/output/INSTA/marcel/GT_350.avi")
-video2 = VideoFileClip("/mnt/data/lyl/codes/RGBAvatar/output/INSTA/marcel/reproduction/render_image/video.avi")
-video3 = VideoFileClip("/mnt/data/lyl/codes/RGBAvatar/output/INSTA/marcel/learnableshear/350.avi")
+video1 = VideoFileClip("/mnt/data/lyl/codes/RGBAvatar/render/gt/wojtek_1.avi")
+video2 = VideoFileClip("/mnt/data/lyl/codes/RGBAvatar/render/gbs/wojtek_1.avi")
+video3 = VideoFileClip("/mnt/data/lyl/codes/RGBAvatar/render/rgbavatar/wojtek_1.avi")
 
 
 # 高度自动对齐
@@ -13,7 +13,7 @@ final_video = clips_array([
 
 # 导出视频
 final_video.write_videofile(
-    "/mnt/data/lyl/codes/RGBAvatar/output/INSTA/marcel/learnableshear/gt_paper_ours.mp4",
+    "/mnt/data/lyl/codes/RGBAvatar/render/AAAnew/wojtek_1.mp4",
     codec="libx264",
     audio_codec="aac"
 )
