@@ -258,7 +258,7 @@ class BindingModel(GaussianModel):
         A_face = M_def @ self.face_M_can_inv[None, ...].float()         # self.face_M_can_inv: 模板canonical基底矩阵地逆， A_face: 从canonical到deformed变换矩阵 [B,F,3,3]
         binding_A = A_face[:, self.binding_face_id]                     # 每个高斯对应的仿射矩阵A [B,N,3,3]
 
-        gs = self.get_batch_attributes_torch(B, blend_weight)
+        gs = self.get_batch_attributes_torch(B, mesh_verts, self.template_faces, blend_weight)
 
         # gs.affine2: [B,N,4] -> (a,b,c,d)
         a, b, c, d = gs.affine2.unbind(-1)

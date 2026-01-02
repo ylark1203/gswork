@@ -36,6 +36,23 @@
                 "--preload"
             ],
             "justMyCode": false
+        },
+        {
+            "name": "spiral train_offline debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--subject",
+                "bala",
+                "--work_name", 
+                "debug", 
+                "--config",
+                "config/offline_spiral.yaml",
+                "--preload"
+            ],
+            "justMyCode": false
         }
     ]
 }

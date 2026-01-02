@@ -9,9 +9,11 @@ from plyfile import PlyData, PlyElement
 from diff_renderer import GaussianAttributes
 from diff_gaussian_rasterization import linear_blending
 from utils import Struct, flatten_model_params, load_flattened_model_params, inverse_sigmoid
-
+import pickle
 import os
 
+from submodules.spiralnet_plus.reconstruction.network import AE
+from submodules.spiralnet_plus.utils.utils import to_sparse, preprocess_spiral
 
 # legacy
 def linear_blending_torch(basis: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
@@ -46,14 +48,39 @@ class GaussianModel:
             ).cuda()
         else:
             self.weight_module = nn.Linear(self.model_config.num_basis_in, self.model_config.num_basis_blend, device='cuda')
+        
+        with open(self.model_config.model.transform, 'rb') as f:
+            tmp = pickle.load(f, encoding='latin1')
+        
+        spiral_indices_list = [
+            preprocess_spiral(tmp['face'][idx], self.model_config.model.spiral.encoder_seq_length[idx],
+                                    tmp['vertices'][idx],
+                                    self.model_config.model.spiral.dilation[idx]).to('cuda:0')
+            for idx in range(len(tmp['face']) - 1)
+        ]
+        
+        down_transform_list_QEM = [
+            to_sparse(down_transform).to('cuda:0')
+            for down_transform in tmp['down_transform']
+        ]
 
-        self.weight_to_xyz = nn.Sequential( # 用flame参数预测一个偏移量
-                nn.Linear(self.model_config.num_basis_in, 128),
-                nn.ReLU(),
-                nn.Linear(128, 128),
-                nn.ReLU(),
-                nn.Linear(128, 60349*3)
-            ).cuda()
+        up_transform_list_QEM = [
+            to_sparse(up_transform).to('cuda:0')
+            for up_transform in tmp['up_transform']
+        ]
+        
+        self.ae = AE(self.model_config.model.spiral.in_channels, self.model_config.model.spiral.out_channels, self.model_config.model.spiral.latent_channels, self.model_config.model.spiral.latent_channels, 
+                     spiral_indices_list, down_transform_list_QEM, up_transform_list_QEM
+                     )
+        self.spiral_encoder = self.ae.encoder()
+        
+        # self.weight_to_xyz = nn.Sequential( # 用flame参数预测一个偏移量
+        #         nn.Linear(self.model_config.num_basis_in, 128),
+        #         nn.ReLU(),
+        #         nn.Linear(128, 128),
+        #         nn.ReLU(),
+        #         nn.Linear(128, 60349*3)
+        #     ).cuda()
         
         self.opacity_act = torch.sigmoid
         self.inv_opactity_act = inverse_sigmoid
@@ -88,10 +115,10 @@ class GaussianModel:
         )
     
     # legacy
-    def get_batch_attributes_torch(self, batch_size: int, blend_weight_params: Optional[torch.Tensor] = None):
+    def get_batch_attributes_torch(self, batch_size: int, mesh: torch.Tensor, template_faces: torch.Tensor, blend_weight_params: Optional[torch.Tensor] = None):
         if blend_weight_params is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight_params)
-            
+            # blend_weight = self.project_weight(blend_weight_params)
+            blend_weight = self.spiral_encoder(mesh)
             _xyz = linear_blending_torch(self._xyz, blend_weight, self._xyz_b)
             _xyz = _xyz + self.weight_to_xyz(blend_weight_params).reshape(batch_size, -1, 3)*0.1
             
@@ -245,9 +272,10 @@ class GaussianModel:
         PlyData([el]).write(path)
         
         torch.save({
-        "weight_to_xyz": self.weight_to_xyz.state_dict(),
+        # "weight_to_xyz": self.weight_to_xyz.state_dict(),
+        "weight_spiral": self.ae.state_dict()
         # "weight_to_rotation":  self.weight_to_rotation.state_dict()
-        }, os.path.join(os.path.dirname(path), "mlp.pt"))
+        }, os.path.join(os.path.dirname(path), "spiral.pt"))
         
     @torch.no_grad()
     def load_ply(self, path: str, train: bool = False):
@@ -352,8 +380,9 @@ class GaussianModel:
         self._feature_b = torch.from_numpy(f_dc_b).transpose(0, 1).contiguous().cuda()
         self._affine2_b = torch.from_numpy(affine2_b).contiguous().cuda()
         
-        ckpt = torch.load(os.path.join(os.path.dirname(path), "mlp.pt"))
-        self.weight_to_xyz.load_state_dict(ckpt["weight_to_xyz"])
+        ckpt = torch.load(os.path.join(os.path.dirname(path), "spiral.pt"))
+        # self.weight_to_xyz.load_state_dict(ckpt["weight_to_xyz"])
+        self.ae.load_state_dict(ckpt["weight_spiral"])
         
         if train:
             self._xyz = Parameter(self._xyz.requires_grad_(True))
