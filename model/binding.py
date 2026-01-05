@@ -131,7 +131,7 @@ class BindingModel(GaussianModel):
         self.template_faces = self.template_model.faces.to(torch.int32)
         self.template_uv_faces = self.template_model.uv_faces.to(torch.int32)
         self.face_uvs = self.template_uvs[self.template_uv_faces]
-        self._precompute_face_can_inv(self.template_model.v_template)
+        # self._precompute_face_can_inv(self.template_model.v_template)
         self.glctx = glctx
         self.binding()
 
@@ -180,14 +180,14 @@ class BindingModel(GaussianModel):
         feature = torch.zeros([num_gaussian, 1, 3], dtype=torch.float32, device='cuda')
         rotation = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
         rotation[:, 0] = 1
-        affine2 = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
+        # affine2 = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
 
         # initialize linear bases of gaussian attributes
         num_basis_blend = self.model_config.num_basis_blend if self.model_config.use_weight_proj else self.model_config.num_basis_in
         xyz_b = torch.zeros([num_basis_blend, num_gaussian, 3], dtype=torch.float32, device='cuda')
         feature_b = torch.zeros([num_basis_blend, num_gaussian, 1, 3], dtype=torch.float32, device='cuda')
         rotation_b = torch.zeros([num_basis_blend, num_gaussian, 4], dtype=torch.float32, device='cuda')
-        affine2_b = torch.zeros([num_basis_blend, num_gaussian, 4], dtype=torch.float32, device='cuda')
+        # affine2_b = torch.zeros([num_basis_blend, num_gaussian, 4], dtype=torch.float32, device='cuda')
 
         # if gaussian used fast forward
         self.gs_initialized = torch.full([num_gaussian], False, dtype=torch.bool, device='cuda') # [N]
@@ -198,12 +198,12 @@ class BindingModel(GaussianModel):
         self._scaling = Parameter(scaling.requires_grad_(True)) # [N, 3]
         self._rotation = Parameter(rotation.requires_grad_(True)) # [N, 4]
         self._feature_dc = Parameter(feature.requires_grad_(True)) # [N, 1, 3]
-        self._affine2 = Parameter(affine2.requires_grad_(True)) 
+        # self._affine2 = Parameter(affine2.requires_grad_(True)) 
 
         self._xyz_b = Parameter(xyz_b.requires_grad_(True))
         self._feature_b = Parameter(feature_b.requires_grad_(True))
         self._rotation_b = Parameter(rotation_b.requires_grad_(True))
-        self._affine2_b = Parameter(affine2_b.requires_grad_(True))
+        # self._affine2_b = Parameter(affine2_b.requires_grad_(True))
 
 
 
@@ -251,69 +251,85 @@ class BindingModel(GaussianModel):
         return GaussianAttributes(xyz.squeeze(0), gs.opacity, gs.scaling, rotation.squeeze(0), gs.sh)
 
     def gaussian_deform_batch_torch(self, mesh_verts, blend_weight=None):
-        B = mesh_verts.shape[0]
-        tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
+        # 可学习剪切 先去掉
+        # B = mesh_verts.shape[0]
+        # tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
 
-        M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # 当前帧每个面片的局部基底矩阵
-        A_face = M_def @ self.face_M_can_inv[None, ...].float()         # self.face_M_can_inv: 模板canonical基底矩阵地逆， A_face: 从canonical到deformed变换矩阵 [B,F,3,3]
-        binding_A = A_face[:, self.binding_face_id]                     # 每个高斯对应的仿射矩阵A [B,N,3,3]
+        # M_def = compute_face_tbn_torch(tri_verts, self.face_uvs)        # 当前帧每个面片的局部基底矩阵
+        # A_face = M_def @ self.face_M_can_inv[None, ...].float()         # self.face_M_can_inv: 模板canonical基底矩阵地逆， A_face: 从canonical到deformed变换矩阵 [B,F,3,3]
+        # binding_A = A_face[:, self.binding_face_id]                     # 每个高斯对应的仿射矩阵A [B,N,3,3]
 
-        gs = self.get_batch_attributes_torch(B, mesh_verts, self.template_faces, blend_weight)
+        # gs = self.get_batch_attributes_torch(B, mesh_verts, self.template_faces, blend_weight)
 
-        # gs.affine2: [B,N,4] -> (a,b,c,d)
-        a, b, c, d = gs.affine2.unbind(-1)
+        # # gs.affine2: [B,N,4] -> (a,b,c,d)
+        # a, b, c, d = gs.affine2.unbind(-1)
 
-        # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
-        # 例如限制到 [-0.2, 0.2]
-        limit = 0.01
-        # b = limit * torch.tanh(b) # b、c是剪切项
-        # c = limit * torch.tanh(c)
+        # # 建议用小幅度约束，避免发散（剪切很容易把 cov 搞炸）
+        # # 例如限制到 [-0.2, 0.2]
+        # limit = 0.01
+        # # b = limit * torch.tanh(b) # b、c是剪切项
+        # # c = limit * torch.tanh(c)
 
-        # # 对角用 exp 保证正（更稳定）
-        # aa = torch.exp(limit * torch.tanh(a)) # aa dd是缩放项
-        # dd = torch.exp(limit * torch.tanh(d))
+        # # # 对角用 exp 保证正（更稳定）
+        # # aa = torch.exp(limit * torch.tanh(a)) # aa dd是缩放项
+        # # dd = torch.exp(limit * torch.tanh(d))
 
-        aa = 1.0 + limit * torch.tanh(a)
-        dd = 1.0 + limit * torch.tanh(d)
-        b  =       limit * torch.tanh(b)
-        c  =       limit * torch.tanh(c)
+        # aa = 1.0 + limit * torch.tanh(a)
+        # dd = 1.0 + limit * torch.tanh(d)
+        # b  =       limit * torch.tanh(b)
+        # c  =       limit * torch.tanh(c)
 
-        A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
-        A_res[..., 0, 0] = aa
-        A_res[..., 0, 1] = b
-        A_res[..., 1, 0] = c
-        A_res[..., 1, 1] = dd
-        A_res[..., 2, 2] = 1.0
+        # A_res = torch.zeros((B, gs.xyz.shape[1], 3, 3), device=gs.xyz.device, dtype=gs.xyz.dtype)
+        # A_res[..., 0, 0] = aa
+        # A_res[..., 0, 1] = b
+        # A_res[..., 1, 0] = c
+        # A_res[..., 1, 1] = dd
+        # A_res[..., 2, 2] = 1.0
 
-        A_total = binding_A @ A_res   # [B,N,3,3]
+        # A_total = binding_A @ A_res   # [B,N,3,3]
 
-        # 1) 先得到每个高斯的局部椭球矩阵 L_local = R @ diag(s)
-        R_g = quaternion_to_matrix(gs.rotation)          # [B,N,3,3]
-        S_g = torch.diag_embed(gs.scaling)               # [B,N,3,3]
-        L_local = R_g @ S_g                              # [B,N,3,3]
+        # # 1) 先得到每个高斯的局部椭球矩阵 L_local = R @ diag(s)
+        # R_g = quaternion_to_matrix(gs.rotation)          # [B,N,3,3]
+        # S_g = torch.diag_embed(gs.scaling)               # [B,N,3,3]
+        # L_local = R_g @ S_g                              # [B,N,3,3]
 
-        # 2) 让椭球随仿射变形：L_world = A @ L_local
-        L_world = A_total @ L_local                    # [B,N,3,3]
+        # # 2) 让椭球随仿射变形：L_world = A @ L_local
+        # L_world = A_total @ L_local                    # [B,N,3,3]
 
-        # 3) 得到协方差：cov3D = L_world L_world^T
-        cov3D = L_world @ L_world.transpose(-1, -2)      # [B,N,3,3]
+        # # 3) 得到协方差：cov3D = L_world L_world^T
+        # cov3D = L_world @ L_world.transpose(-1, -2)      # [B,N,3,3]
 
-        # offset
-        binding_face_bary = self.binding_face_bary.unsqueeze(0).unsqueeze(-1)  # [1,N,3,1]
-        binding_tri_verts = tri_verts[:, self.binding_face_id]                 # [B,N,3,3]
-        binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
+        # # offset
+        # binding_face_bary = self.binding_face_bary.unsqueeze(0).unsqueeze(-1)  # [1,N,3,1]
+        # binding_tri_verts = tri_verts[:, self.binding_face_id]                 # [B,N,3,3]
+        # binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2)       # [B,N,3]
 
-        # xyz 用仿射（含剪切）
-        # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets # 效果差
-        xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
+        # # xyz 用仿射（含剪切）
+        # # xyz = (A_total @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets # 效果差
+        # xyz = (binding_A @ gs.xyz.unsqueeze(-1)).squeeze(-1) + binding_offsets
         
-        # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
-        # binding_R = polar_rotation(A_total)   # 或者用 normalize tbn 得到的 R
-        # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
-        rotation = gs.rotation
+        # # rotation 仍用“旋转部分”（选A：用 normalize TBN / 或选B：polar_rotation(binding_A)）
+        # # binding_R = polar_rotation(A_total)   # 或者用 normalize tbn 得到的 R
+        # # rotation = quaternion_multiply(matrix_to_quaternion(binding_R), gs.rotation)
+        # rotation = gs.rotation
 
-        reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
-        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
+        # reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
+        # return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
+        
+        batch_size = mesh_verts.shape[0]
+        tri_verts = mesh_verts[:, self.template_faces] # [B, F, 3, 3]
+        face_tbn = compute_face_tbn_torch(tri_verts, self.face_uvs)
+
+        binding_face_bary = self.binding_face_bary.unsqueeze(-1).unsqueeze(0) # [1, N, 3, 1]
+        binding_tri_verts = tri_verts[:, self.binding_face_id] # [B, N, 3, 3]
+        binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2) # [B, N, 3]
+        binding_rotations = face_tbn[:, self.binding_face_id] # [B, N, 3, 3]
+        
+        gs = self.get_batch_attributes(batch_size, blend_weight)
+        xyz = torch.matmul(binding_rotations, gs.xyz.unsqueeze(-1)).squeeze(-1).view(batch_size, -1, 3) # [B, N, 3]
+        xyz += binding_offsets # [B, N, 3]
+        rotation = quaternion_multiply(matrix_to_quaternion(binding_rotations), gs.rotation) # [B, N, 4]
+        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh)
 
     
     def gaussian_deform(self, mesh_verts: torch.Tensor, blend_weight: Optional[torch.Tensor] = None):

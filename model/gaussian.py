@@ -8,18 +8,31 @@ from plyfile import PlyData, PlyElement
 
 from diff_renderer import GaussianAttributes
 from diff_gaussian_rasterization import linear_blending
-from utils import Struct, flatten_model_params, load_flattened_model_params, inverse_sigmoid
+from utils import (
+    Struct,
+    flatten_model_params,
+    load_flattened_model_params,
+    inverse_sigmoid,
+)
 import pickle
 import os
-
+import os.path as osp
 from submodules.spiralnet_plus.reconstruction.network import AE
 from submodules.spiralnet_plus.utils.utils import to_sparse, preprocess_spiral
+from psbody.mesh import Mesh
+from submodules.spiralnet_plus.utils.utils import preprocess_spiral
+from submodules.spiralnet_plus.utils import mesh_sampling
+
 
 # legacy
-def linear_blending_torch(basis: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
+def linear_blending_torch(
+    basis: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor
+):
     num_batch, num_bias = weight.shape
     data_dim = basis.ndim
-    result = basis.unsqueeze(0) + (weight.view(num_batch, num_bias, *([1] * data_dim)) * bias.unsqueeze(0)).sum(dim=1)
+    result = basis.unsqueeze(0) + (
+        weight.view(num_batch, num_bias, *([1] * data_dim)) * bias.unsqueeze(0)
+    ).sum(dim=1)
     return result
 
 
@@ -39,41 +52,78 @@ class GaussianModel:
         self._affine2_b = torch.empty(0)
 
         if self.model_config.use_mlp_proj:
-            self.weight_module = nn.Sequential( # MLP
+            self.weight_module = nn.Sequential(  # MLP
                 nn.Linear(self.model_config.num_basis_in, 128),
                 nn.ReLU(),
                 nn.Linear(128, 128),
                 nn.ReLU(),
-                nn.Linear(128, self.model_config.num_basis_blend)
+                nn.Linear(128, self.model_config.num_basis_blend),
             ).cuda()
         else:
-            self.weight_module = nn.Linear(self.model_config.num_basis_in, self.model_config.num_basis_blend, device='cuda')
-        
-        with open(self.model_config.model.transform, 'rb') as f:
-            tmp = pickle.load(f, encoding='latin1')
-        
+            self.weight_module = nn.Linear(
+                self.model_config.num_basis_in,
+                self.model_config.num_basis_blend,
+                device="cuda",
+            )
+
+        if not osp.exists(self.model_config.spiral["transform"]):
+            print("Generating transform matrices...")
+            mesh = Mesh(filename=self.model_config.spiral["template"])
+            ds_factors = [4, 4, 4, 4]
+            _, A, D, U, F, V = mesh_sampling.generate_transform_matrices(
+                mesh, ds_factors
+            )
+            tmp = {
+                "vertices": V,
+                "face": F,
+                "adj": A,
+                "down_transform": D,
+                "up_transform": U,
+            }
+
+            with open(self.model_config.spiral["transform"], "wb") as fp:
+                pickle.dump(tmp, fp)
+            print("Done!")
+            print(
+                "Transform matrices are saved in '{}'".format(
+                    self.model_config.spiral["transform"]
+                )
+            )
+
+        with open(self.model_config.spiral["transform"], "rb") as f:
+            tmp = pickle.load(f, encoding="latin1")
+
+        with open(self.model_config.spiral["transform"], "rb") as f:
+            tmp = pickle.load(f, encoding="latin1")
+
         spiral_indices_list = [
-            preprocess_spiral(tmp['face'][idx], self.model_config.model.spiral.encoder_seq_length[idx],
-                                    tmp['vertices'][idx],
-                                    self.model_config.model.spiral.dilation[idx]).to('cuda:0')
-            for idx in range(len(tmp['face']) - 1)
+            preprocess_spiral(
+                tmp["face"][idx],
+                self.model_config.spiral["encoder_seq_length"][idx],
+                tmp["vertices"][idx],
+                self.model_config.spiral["dilation"][idx],
+            ).to("cuda:0")
+            for idx in range(len(tmp["face"]) - 1)
         ]
-        
+
         down_transform_list_QEM = [
-            to_sparse(down_transform).to('cuda:0')
-            for down_transform in tmp['down_transform']
+            to_sparse(down_transform).to("cuda:0")
+            for down_transform in tmp["down_transform"]
         ]
 
         up_transform_list_QEM = [
-            to_sparse(up_transform).to('cuda:0')
-            for up_transform in tmp['up_transform']
+            to_sparse(up_transform).to("cuda:0") for up_transform in tmp["up_transform"]
         ]
-        
-        self.ae = AE(self.model_config.model.spiral.in_channels, self.model_config.model.spiral.out_channels, self.model_config.model.spiral.latent_channels, self.model_config.model.spiral.latent_channels, 
-                     spiral_indices_list, down_transform_list_QEM, up_transform_list_QEM
-                     )
-        self.spiral_encoder = self.ae.encoder()
-        
+
+        self.ae = AE(
+            self.model_config.spiral["in_channels"],
+            self.model_config.spiral["out_channels"],
+            self.model_config.spiral["latent_channels"],
+            spiral_indices_list,
+            down_transform_list_QEM,
+            up_transform_list_QEM,
+        )
+
         # self.weight_to_xyz = nn.Sequential( # 用flame参数预测一个偏移量
         #         nn.Linear(self.model_config.num_basis_in, 128),
         #         nn.ReLU(),
@@ -81,15 +131,15 @@ class GaussianModel:
         #         nn.ReLU(),
         #         nn.Linear(128, 60349*3)
         #     ).cuda()
-        
+
         self.opacity_act = torch.sigmoid
         self.inv_opactity_act = inverse_sigmoid
         self.scaling_act = torch.exp
         self.inv_scaling_act = torch.log
-        self.rotation_act = lambda x:  torch.nn.functional.normalize(x, dim=-1)
-    
+        self.rotation_act = lambda x: torch.nn.functional.normalize(x, dim=-1)
+
     def project_weight(self, blend_weight_in: torch.Tensor):
-        blend_weight_in = blend_weight_in[:, :self.model_config.num_basis_in]
+        blend_weight_in = blend_weight_in[:, : self.model_config.num_basis_in]
         if self.model_config.use_weight_proj:
             blend_weight_proj = self.weight_module(blend_weight_in)
             return blend_weight_proj
@@ -113,20 +163,19 @@ class GaussianModel:
             self.rotation_act(_rotation), 
             _feature_dc
         )
-    
+
     # legacy
-    def get_batch_attributes_torch(self, batch_size: int, mesh: torch.Tensor, template_faces: torch.Tensor, blend_weight_params: Optional[torch.Tensor] = None):
+    def get_batch_attributes_torch(self, batch_size: int, mesh: torch.Tensor, template_faces: torch.Tensor, blend_weight_params: Optional[torch.Tensor] = None,):
         if blend_weight_params is not None and self.model_config.use_blend:
             # blend_weight = self.project_weight(blend_weight_params)
-            blend_weight = self.spiral_encoder(mesh)
+            blend_weight = self.ae.encoder(mesh)
             _xyz = linear_blending_torch(self._xyz, blend_weight, self._xyz_b)
-            _xyz = _xyz + self.weight_to_xyz(blend_weight_params).reshape(batch_size, -1, 3)*0.1
-            
+
             _rotation = linear_blending_torch(self._rotation, blend_weight, self._rotation_b)
             _feature_dc = linear_blending_torch(self._feature_dc, blend_weight, self._feature_b)
-            _affine2 = linear_blending_torch(self._affine2, blend_weight, self._affine2_b) # [B,N,4]
+            # _affine2 = linear_blending_torch(self._affine2, blend_weight, self._affine2_b) # [B,N,4]
             # _affine2 = self._affine2.expand(batch_size, -1, -1)
-            _opacity = self._opacity.expand(batch_size, -1, -1)            
+            _opacity = self._opacity.expand(batch_size, -1, -1)
             _scaling = self._scaling.expand(batch_size, -1, -1)
         else:
             _xyz = self._xyz.expand(batch_size, -1, -1)
@@ -134,16 +183,16 @@ class GaussianModel:
             _opacity = self._opacity.expand(batch_size, -1, -1)
             _scaling = self._scaling.expand(batch_size, -1, -1)
             _feature_dc = self._feature_dc.expand(batch_size, -1, -1, -1)
-            _affine2 = self._affine2.expand(batch_size, -1, -1)  # [B,N,4]
+            # _affine2 = self._affine2.expand(batch_size, -1, -1)  # [B,N,4]
         return GaussianAttributes(
-            _xyz, 
-            self.opacity_act(_opacity), 
-            self.scaling_act(_scaling), 
-            self.rotation_act(_rotation), 
+            _xyz,
+            self.opacity_act(_opacity),
+            self.scaling_act(_scaling),
+            self.rotation_act(_rotation),
             _feature_dc,
-            _affine2
+            # _affine2
         )
-    
+
     def get_attributes(self, blend_weight: Optional[torch.Tensor] = None):
         if blend_weight is not None and self.model_config.use_blend:
             blend_weight = self.project_weight(blend_weight.unsqueeze(0)) # add batch dim
@@ -163,10 +212,10 @@ class GaussianModel:
             self.rotation_act(_rotation), 
             _feature_dc
         )
-    
+
     def get_batch_attributes(self, batch_size: int, blend_weight: Optional[torch.Tensor] = None):
         if blend_weight is not None and self.model_config.use_blend:
-            blend_weight = self.project_weight(blend_weight) # blend_weight: [10， 129]            
+            blend_weight = self.project_weight(blend_weight)
             _xyz, _rotation, _feature_dc = linear_blending(
                 blend_weight,
                 self._xyz, self._rotation, self._feature_dc,
@@ -187,7 +236,7 @@ class GaussianModel:
             self.rotation_act(_rotation), 
             _feature_dc
         )
-    
+
     def sparsity_loss(self, blend_weight: torch.Tensor):
         if blend_weight is not None and self.model_config.use_blend and self.model_config.use_weight_proj:
             return torch.abs(self.weight_module(blend_weight)).mean()
@@ -197,21 +246,21 @@ class GaussianModel:
     def training_params(self, args):
         gs_params = [
             {'params': [self._xyz], 'lr': args.position_lr * args.scene_extent, "name": "xyz"},
-            {'params': [self._opacity], 'lr': args.opacity_lr, "name": "opacity"},
-            {'params': [self._scaling], 'lr': args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': args.rotation_lr, "name": "rotation"},
-            {'params': [self._feature_dc], 'lr': args.feature_lr, "name": "f_dc"},
-            {'params': [self._affine2], 'lr': args.affine2_lr, "name": "affine2"}
+            {"params": [self._opacity], "lr": args.opacity_lr, "name": "opacity"},
+            {"params": [self._scaling], "lr": args.scaling_lr, "name": "scaling"},
+            {"params": [self._rotation], "lr": args.rotation_lr, "name": "rotation"},
+            {"params": [self._feature_dc], "lr": args.feature_lr, "name": "f_dc"},
+            # {'params': [self._affine2], 'lr': args.affine2_lr, "name": "affine2"}
         ]
         bs_params = [
             {'params': [self._xyz_b], 'lr': args.position_b_lr_scale * args.position_lr * args.scene_extent, "name": "xyz_b"},
             {'params': [self._rotation_b], 'lr': args.rotaion_b_lr_scale * args.rotation_lr, "name": "rotation_b"},
-            {'params': [self._feature_b], 'lr': args.feature_b_lr_scale * args.feature_lr, "name": "f_dc_b"},
-            {'params': [self._affine2_b], 'lr': args.affine2_b_lr_scale * args.affine2_lr, "name": "affine2_b"}
+            {'params': [self._feature_b], 'lr': args.feature_b_lr_scale * args.feature_lr, "name": "f_dc_b"}
+            # {'params': [self._affine2_b], 'lr': args.affine2_b_lr_scale * args.affine2_lr, "name": "affine2_b"}
         ]
         adapter_params = [
             {'params': self.weight_module.parameters(), 'lr': args.weight_module_lr, "name": "weight_module"},
-            {'params': self.weight_to_xyz.parameters(), 'lr': args.weight_to_xyz_lr, "name": "weight_to_xyz"},
+            {"params": self.ae.parameters(),"lr": args.weight_module_lr, "name": "weight_spiral"},
         ]
         return gs_params, bs_params, adapter_params
 
@@ -223,14 +272,15 @@ class GaussianModel:
         opacity = self._opacity.cpu().numpy()
         scaling = self._scaling.cpu().numpy()
         rotation = self._rotation.cpu().numpy()
-        affine2 = self._affine2.cpu().numpy()
+        # affine2 = self._affine2.cpu().numpy()
         f_dc = self._feature_dc.cpu().transpose(1, 2).flatten(start_dim=1).numpy()
         f_rest = np.zeros([num_gs, 45], dtype=xyz.dtype)
 
         xyz_b = self._xyz_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
         rotation_b = self._rotation_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
         f_dc_b = self._feature_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
-        affine2_b = self._affine2_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
+
+        # affine2_b = self._affine2_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
 
         linear_module = flatten_model_params(self.weight_module).cpu().numpy().reshape([-1, 1])
         assert linear_module.shape[0] <= num_gs
@@ -242,53 +292,62 @@ class GaussianModel:
             binding_face_id = self.binding_face_id.cpu().numpy().astype(np.int32)[..., np.newaxis]
             binding_face_bary = self.binding_face_bary.cpu().numpy()
 
-        l = ['x', 'y', 'z', 'nx', 'ny', 'nz', 'opacity']
+        l = ["x", "y", "z", "nx", "ny", "nz", "opacity"]
         for i in range(scaling.shape[1]): l.append('scale_{}'.format(i))
         for i in range(rotation.shape[1]): l.append('rot_{}'.format(i))
         for i in range(f_dc.shape[1]): l.append('f_dc_{}'.format(i))
         for i in range(f_rest.shape[1]): l.append('f_rest_{}'.format(i))
-        for i in range(affine2.shape[1]): l.append('affine2_{}'.format(i))
+        # for i in range(affine2.shape[1]): l.append('affine2_{}'.format(i))
         for i in range(xyz_b.shape[1]): l.append('xyz_b_{}'.format(i))
         for i in range(rotation_b.shape[1]): l.append('rot_b_{}'.format(i))
         for i in range(f_dc_b.shape[1]): l.append('f_dc_b_{}'.format(i))
-        for i in range(affine2_b.shape[1]): l.append('affine2_b_{}'.format(i))
-        l.append('weight_module')
-        dtype_full = [(attribute, 'f4') for attribute in l]
+        # for i in range(affine2_b.shape[1]): l.append('affine2_b_{}'.format(i))
+        l.append("weight_module")
+        dtype_full = [(attribute, "f4") for attribute in l]
 
         if binding:
-            dtype_full.append(('face_id', 'i4'))
-            dtype_full.append(('face_bary_0', 'f4'))
-            dtype_full.append(('face_bary_1', 'f4'))
-            dtype_full.append(('face_bary_2', 'f4'))
+            dtype_full.append(("face_id", "i4"))
+            dtype_full.append(("face_bary_0", "f4"))
+            dtype_full.append(("face_bary_1", "f4"))
+            dtype_full.append(("face_bary_2", "f4"))
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, affine2, xyz_b, rotation_b, f_dc_b, affine2_b, linear_module_save), axis=1)
+        # attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, affine2, xyz_b, rotation_b, f_dc_b, affine2_b, linear_module_save), axis=1)
+        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, xyz_b, rotation_b, f_dc_b, linear_module_save), axis=1)
 
         if binding:
             attributes = np.concatenate((attributes, binding_face_id, binding_face_bary), axis=1)
 
         elements[:] = list(map(tuple, attributes))
-        el = PlyElement.describe(elements, 'vertex')
+        el = PlyElement.describe(elements, "vertex")
         PlyData([el]).write(path)
-        
-        torch.save({
-        # "weight_to_xyz": self.weight_to_xyz.state_dict(),
-        "weight_spiral": self.ae.state_dict()
-        # "weight_to_rotation":  self.weight_to_rotation.state_dict()
-        }, os.path.join(os.path.dirname(path), "spiral.pt"))
-        
+
+        torch.save(
+            {
+                # "weight_to_xyz": self.weight_to_xyz.state_dict(),
+                "weight_spiral": self.ae.state_dict()
+                # "weight_to_rotation":  self.weight_to_rotation.state_dict()
+            },
+            os.path.join(os.path.dirname(path), "spiral.pt"),
+        )
+
     @torch.no_grad()
     def load_ply(self, path: str, train: bool = False):
         plydata = PlyData.read(path)
 
-        xyz = np.stack((
-            np.asarray(plydata.elements[0]["x"], dtype=np.float32),
-            np.asarray(plydata.elements[0]["y"], dtype=np.float32),
-            np.asarray(plydata.elements[0]["z"], dtype=np.float32)
-        ), axis=1)
+        xyz = np.stack(
+            (
+                np.asarray(plydata.elements[0]["x"], dtype=np.float32),
+                np.asarray(plydata.elements[0]["y"], dtype=np.float32),
+                np.asarray(plydata.elements[0]["z"], dtype=np.float32),
+            ),
+            axis=1,
+        )
         num_gaussian = xyz.shape[0]
 
-        opacity = np.asarray(plydata.elements[0]["opacity"], dtype=np.float32)[..., np.newaxis]
+        opacity = np.asarray(plydata.elements[0]["opacity"], dtype=np.float32)[
+            ..., np.newaxis
+        ]
         assert opacity.shape[0] == num_gaussian
 
         scaling_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
@@ -306,64 +365,89 @@ class GaussianModel:
         ), axis=1)
         assert rotation.shape[0] == num_gaussian
 
-        affine2 = np.stack([
-        np.asarray(plydata.elements[0][f"affine2_{i}"], dtype=np.float32)
-        for i in range(4)
-        ], axis=1)
+        # affine2 = np.stack(
+        #     [
+        #         np.asarray(plydata.elements[0][f"affine2_{i}"], dtype=np.float32)
+        #         for i in range(4)
+        #     ],
+        #     axis=1,
+        # )
 
-        feature_dc = np.stack((
-            np.asarray(plydata.elements[0]["f_dc_0"], dtype=np.float32),
-            np.asarray(plydata.elements[0]["f_dc_1"], dtype=np.float32),
-            np.asarray(plydata.elements[0]["f_dc_2"], dtype=np.float32)
-        ), axis=1).reshape([num_gaussian, 3, 1])
+        feature_dc = np.stack(
+            (
+                np.asarray(plydata.elements[0]["f_dc_0"], dtype=np.float32),
+                np.asarray(plydata.elements[0]["f_dc_1"], dtype=np.float32),
+                np.asarray(plydata.elements[0]["f_dc_2"], dtype=np.float32),
+            ),
+            axis=1,
+        ).reshape([num_gaussian, 3, 1])
         assert feature_dc.shape[0] == num_gaussian
 
-        xyz_b = np.stack([
-            np.asarray(plydata.elements[0]["xyz_b_{}".format(i)], dtype=np.float32)
-            for i in range(self.model_config.num_basis_blend * 3)
-        ], axis=1)
+        xyz_b = np.stack(
+            [
+                np.asarray(plydata.elements[0]["xyz_b_{}".format(i)], dtype=np.float32)
+                for i in range(self.model_config.num_basis_blend * 3)
+            ],
+            axis=1,
+        )
         assert xyz_b.shape[0] == num_gaussian
         xyz_b = xyz_b.reshape([num_gaussian, self.model_config.num_basis_blend, 3])
 
-        rotation_b = np.stack([
-            np.asarray(plydata.elements[0]["rot_b_{}".format(i)], dtype=np.float32)
-            for i in range(self.model_config.num_basis_blend * 4)
-        ], axis=1)
+        rotation_b = np.stack(
+            [
+                np.asarray(plydata.elements[0]["rot_b_{}".format(i)], dtype=np.float32)
+                for i in range(self.model_config.num_basis_blend * 4)
+            ],
+            axis=1,
+        )
         assert rotation_b.shape[0] == num_gaussian
-        rotation_b = rotation_b.reshape([num_gaussian, self.model_config.num_basis_blend, 4])
+        rotation_b = rotation_b.reshape(
+            [num_gaussian, self.model_config.num_basis_blend, 4]
+        )
 
-        affine2_b_flat = np.stack([
-            np.asarray(plydata.elements[0][f"affine2_b_{i}"], dtype=np.float32)
-            for i in range(self.model_config.num_basis_blend*4)
-        ], axis=1)
-        affine2_b = affine2_b_flat.reshape([num_gaussian, self.model_config.num_basis_blend, 4]).transpose(1,0,2)
+        # affine2_b_flat = np.stack([
+        #     np.asarray(plydata.elements[0][f"affine2_b_{i}"], dtype=np.float32)
+        #     for i in range(self.model_config.num_basis_blend*4)
+        # ], axis=1)
+        # affine2_b = affine2_b_flat.reshape([num_gaussian, self.model_config.num_basis_blend, 4]).transpose(1,0,2)
 
-
-
-        f_dc_b = np.stack([
-            np.asarray(plydata.elements[0]["f_dc_b_{}".format(i)], dtype=np.float32)
-            for i in range(self.model_config.num_basis_blend * 3)
-        ], axis=1)
+        f_dc_b = np.stack(
+            [
+                np.asarray(plydata.elements[0]["f_dc_b_{}".format(i)], dtype=np.float32)
+                for i in range(self.model_config.num_basis_blend * 3)
+            ],
+            axis=1,
+        )
         assert f_dc_b.shape[0] == num_gaussian
         f_dc_b = f_dc_b.reshape([num_gaussian, self.model_config.num_basis_blend, 1, 3])
 
-        linear_module = np.asarray(plydata.elements[0]["weight_module"], dtype=np.float32)
+        linear_module = np.asarray(
+            plydata.elements[0]["weight_module"], dtype=np.float32
+        )
         linear_module = torch.from_numpy(linear_module).cuda()
         load_flattened_model_params(linear_module, self.weight_module)
 
         p_names = [p.name for p in plydata.elements[0].properties]
-        if 'face_id' in p_names:
-            binding_face_id = np.asarray(plydata.elements[0]['face_id'], dtype=np.int32)
+        if "face_id" in p_names:
+            binding_face_id = np.asarray(plydata.elements[0]["face_id"], dtype=np.int32)
             assert binding_face_id.shape[0] == num_gaussian
             self.binding_face_id = torch.from_numpy(binding_face_id).cuda()
             print("Binding face id loaded")
-        
-        bary_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("face_bary_")]
+
+        bary_names = [
+            p.name
+            for p in plydata.elements[0].properties
+            if p.name.startswith("face_bary_")
+        ]
         if len(bary_names) > 0:
-            bary_names = sorted(bary_names, key = lambda x: int(x.split('_')[-1]))
-            binding_face_bary = np.zeros((num_gaussian, len(bary_names)), dtype=np.float32)
+            bary_names = sorted(bary_names, key=lambda x: int(x.split("_")[-1]))
+            binding_face_bary = np.zeros(
+                (num_gaussian, len(bary_names)), dtype=np.float32
+            )
             for idx, attr_name in enumerate(bary_names):
-                binding_face_bary[:, idx] = np.asarray(plydata.elements[0][attr_name], dtype=np.float32)
+                binding_face_bary[:, idx] = np.asarray(
+                    plydata.elements[0][attr_name], dtype=np.float32
+                )
             assert binding_face_bary.shape[0] == num_gaussian
             self.binding_face_bary = torch.from_numpy(binding_face_bary).cuda()
             print("Binding face barycentric loaded")
@@ -372,38 +456,44 @@ class GaussianModel:
         self._opacity = torch.from_numpy(opacity).cuda()
         self._scaling = torch.from_numpy(scaling).cuda()
         self._rotation = torch.from_numpy(rotation).cuda()
-        self._affine2   = torch.from_numpy(affine2).cuda()
-        self._feature_dc = torch.from_numpy(feature_dc).transpose(1, 2).contiguous().cuda()
+        # self._affine2 = torch.from_numpy(affine2).cuda()
+        self._feature_dc = (
+            torch.from_numpy(feature_dc).transpose(1, 2).contiguous().cuda()
+        )
 
         self._xyz_b = torch.from_numpy(xyz_b).transpose(0, 1).contiguous().cuda()
-        self._rotation_b = torch.from_numpy(rotation_b).transpose(0, 1).contiguous().cuda()
+        self._rotation_b = (
+            torch.from_numpy(rotation_b).transpose(0, 1).contiguous().cuda()
+        )
         self._feature_b = torch.from_numpy(f_dc_b).transpose(0, 1).contiguous().cuda()
-        self._affine2_b = torch.from_numpy(affine2_b).contiguous().cuda()
-        
+        # self._affine2_b = torch.from_numpy(affine2_b).contiguous().cuda()
+
         ckpt = torch.load(os.path.join(os.path.dirname(path), "spiral.pt"))
         # self.weight_to_xyz.load_state_dict(ckpt["weight_to_xyz"])
         self.ae.load_state_dict(ckpt["weight_spiral"])
-        
+
         if train:
             self._xyz = Parameter(self._xyz.requires_grad_(True))
             self._opacity = Parameter(self._opacity.requires_grad_(True))
             self._scaling = Parameter(self._scaling.requires_grad_(True))
             self._rotation = Parameter(self._rotation.requires_grad_(True))
             self._feature_dc = Parameter(self._feature_dc.requires_grad_(True))
-            self._affine2   = Parameter(self._affine2.requires_grad_(True))
+            # self._affine2   = Parameter(self._affine2.requires_grad_(True))
 
             self._xyz_b = Parameter(self._xyz_b.requires_grad_(True))
             self._rotation_b = Parameter(self._rotation_b.requires_grad_(True))
             self._feature_b = Parameter(self._feature_b.requires_grad_(True))
-            self._affine2_b = Parameter(self._affine2_b.requires_grad_(True))
+            # self._affine2_b = Parameter(self._affine2_b.requires_grad_(True))
 
     @torch.no_grad()
     def load_weight_module(self, path: str):
         plydata = PlyData.read(path)
-        linear_module = np.asarray(plydata.elements[0]["weight_module"], dtype=np.float32)
+        linear_module = np.asarray(
+            plydata.elements[0]["weight_module"], dtype=np.float32
+        )
         linear_module = torch.from_numpy(linear_module).cuda()
         load_flattened_model_params(linear_module, self.weight_module)
-    
+
     @torch.no_grad()
     def capture(self):
         return (
@@ -417,11 +507,10 @@ class GaussianModel:
             self._rotation_b,
             self._feature_b,
             self._affine2_b,
-
             self.weight_module.weight,
-            self.weight_module.bias
+            self.weight_module.bias,
         )
-    
+
     @torch.no_grad()
     def restore(self, params):
         self._xyz.copy_(params[0])
@@ -438,19 +527,18 @@ class GaussianModel:
         self.weight_module.weight.copy_(params[10])
         self.weight_module.bias.copy_(params[11])
 
-    @torch.no_grad()
+
     def restore_from_optimizer(self, optimizer: torch.optim.Optimizer):
         for group in optimizer.param_groups:
             if group['name'] == 'xyz': self._xyz = group['params'][0]
             elif group['name'] == 'opacity': self._opacity = group['params'][0]
             elif group['name'] == 'scaling': self._scaling = group['params'][0]
             elif group['name'] == 'rotation': self._rotation = group['params'][0]
-            elif group['name'] == 'affine2': self._affine2 = group['params'][0]
             elif group['name'] == 'f_dc': self._feature_dc = group['params'][0]
             elif group['name'] == 'xyz_b': self._xyz_b = group['params'][0]
             elif group['name'] == 'rotation_b': self._rotation_b = group['params'][0]
             elif group['name'] == 'f_dc_b': self._feature_b = group['params'][0]
-            elif group['name'] == 'affine2_b': self._affine2_b = group['params'][0]
+            elif group["name"] == "affine2_b": self._affine2_b = group["params"][0]
             elif group['name'] == 'weight_module':
                 self.weight_module.weight = group['params'][0]
                 self.weight_module.bias = group['params'][1]

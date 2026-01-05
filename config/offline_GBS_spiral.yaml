@@ -1,12 +1,12 @@
-data_dir: /mnt/data/lyl/datasets/INSTA # Please set your own dataset path
-output_dir: /mnt/data/lyl/codes/RGBAvatar/output/INSTA
+data_dir: /mnt/data/lyl/datasets/HR # Please set your own dataset path
+output_dir: /mnt/data/lyl/codes/RGBAvatar/output/HR
 template_type: Flame
 
 dataset:
   pin_memory: True
   use_shape_weight: True
   use_pose_weight: True
-
+  HQ: True
 model:
   tex_size: 256
   num_basis_in: 129
@@ -25,7 +25,6 @@ model:
     encoder_seq_length: [9, 9, 9, 9]
     latent_channels: 20
     dilation: [1, 1, 1, 1]
-
 train:
   batch_size: 10
   iteration: 50_000
@@ -45,7 +44,7 @@ train:
     scaling_lr: 0.025
     rotation_lr: 0.005
     feature_lr: 0.0125
-    affine2_lr: 0.005 # 定死
+    affine2_lr: 0.005
 
     position_b_lr_scale: 0.05
     rotaion_b_lr_scale: 0.5
@@ -53,9 +52,10 @@ train:
     affine2_b_lr_scale: 0.5
     weight_module_lr: 0.001
     weight_module_lr_scale: 0.9
+
     weight_to_xyz_lr: 0.001
     weight_to_xyz_lr_scale: 0.9
-
+    weight_to_rotation_lr: 0.001
     lambda_l1: 1.0
     lambda_ssim: 0.0
     lambda_lpips: 0.0

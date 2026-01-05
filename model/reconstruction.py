@@ -45,7 +45,7 @@ class Reconstruction:
         self.perceptual_model = None
         self.ssim_window = None
         self.global_lr_scale = 1.0
-
+        self.weight_to_xyz_lr_scale = 0.9
 
     def perceptual_loss(self, image: torch.Tensor, gt_image: torch.Tensor):
         if self.iteration > 20000: # hard coded
@@ -85,6 +85,8 @@ class Reconstruction:
                 param_group['lr'] = self.recon_config.feature_b_lr_scale * self.recon_config.feature_lr * self.global_lr_scale
             elif param_group["name"] == "weight_module": 
                 param_group['lr'] = self.recon_config.weight_module_lr * self.global_lr_scale
+            elif param_group["name"] == "weight_spiral": 
+                param_group['lr'] = self.recon_config.weight_module_lr * self.weight_to_xyz_lr_scale
             elif param_group["name"] == "weight_to_xyz": 
                 param_group['lr'] = self.recon_config.weight_to_xyz_lr * self.recon_config.weight_to_xyz_lr_scale
 
@@ -104,7 +106,8 @@ class Reconstruction:
 
         # blend & bind
         blend_weight = None if self.iteration < self.recon_config.blend_start_iter else blend_weight # blend_weight: [10, 129]
-        gaussian, shear_loss = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
+        # gaussian, shear_loss = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
+        gaussian = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
         self.optimizer.zero_grad(set_to_none = True)
 
         # batch render
@@ -112,7 +115,7 @@ class Reconstruction:
         image, alpha = render_pkg["color"], render_pkg["alpha"]
 
         # loss
-        lambda_shear = 0 if self.iteration < 6000 else self.recon_config.lambda_shear
+        # lambda_shear = 0 if self.iteration < 6000 else self.recon_config.lambda_shear
         l1_loss_val = l1_loss(image, gt_rgb) if self.recon_config.lambda_l1 > 0.0 else 0.0
         ssim_loss_val = self.ssim_loss(image, gt_rgb) if self.recon_config.lambda_ssim > 0.0 else 0.0
         lpips_loss_val = self.perceptual_loss(image, gt_rgb) if self.recon_config.lambda_lpips > 0.0 else 0.0
@@ -124,8 +127,8 @@ class Reconstruction:
             self.recon_config.lambda_lpips * lpips_loss_val + \
             self.recon_config.lambda_alpha * alpha_loss_val + \
             self.recon_config.lambda_sparsity * sparsity_loss_val + \
-            self.recon_config.lambda_orth * orth_loss_val + \
-            lambda_shear * shear_loss
+            self.recon_config.lambda_orth * orth_loss_val
+            # lambda_shear * shear_loss
         
         # optimize
         total_loss.backward()

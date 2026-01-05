@@ -61,7 +61,9 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     with open(args.config) as f: config = yaml.load(f, Loader=yaml.FullLoader)
 
-    glctx = dr.RasterizeGLContext()
+    # glctx = dr.RasterizeGLContext()
+    glctx = dr.RasterizeCudaContext()
+    
     data_path = os.path.join(config['data_dir'], args.subject)
     if args.work_name is None:
         args.work_name = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(int(time.time())))

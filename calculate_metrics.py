@@ -40,7 +40,7 @@ def compute_metrics(dataset: FLAMEDataset, camera: Camera, gaussian_model: Bindi
             blend_weight = data['blend_weight'].cuda()
             bs = gt_image.shape[0]
 
-            gaussian,_ = gaussian_model.gaussian_deform_batch_torch(mesh, blend_weight)
+            gaussian = gaussian_model.gaussian_deform_batch_torch(mesh, blend_weight)
             image = render_gs_batch(camera, bg_color, gaussian)["color"]
             l1_error_vals[i:i+bs] = torch.abs(image - gt_image).reshape(bs, -1).mean(dim=1)
             l2_error_vals[i:i+bs] = torch.square(image - gt_image).reshape(bs, -1).mean(dim=1)
@@ -100,7 +100,8 @@ if __name__ == "__main__":
     parser.add_argument("--split", type=int, default=-350)
     args = parser.parse_args(sys.argv[1:])
 
-    glctx = dr.RasterizeGLContext()
+    # glctx = dr.RasterizeGLContext()
+    glctx = dr.RasterizeCudaContext()
     output_path = os.path.join(args.output_dir, args.subject, args.work_name)
     with open(os.path.join(output_path, "config.yaml")) as f: 
         config = yaml.load(f, Loader=yaml.FullLoader)
