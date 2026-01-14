@@ -12,7 +12,7 @@ from utils import rgb2sh0, Struct
 from utils import compute_face_tbn as compute_face_tbn_torch
 from diff_renderer import compute_rast_info, GaussianAttributes
 from .gaussian import GaussianModel
-
+import numpy as np
 
 def quaternion_to_matrix(q: torch.Tensor) -> torch.Tensor:
     """
@@ -134,7 +134,8 @@ class BindingModel(GaussianModel):
         # self._precompute_face_can_inv(self.template_model.v_template)
         self.glctx = glctx
         self.binding()
-
+        self.mean = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/mean_std/bala_mean.npy")).cuda().float()
+        self.std = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/mean_std/bala_std.npy")).cuda().float()
     def _precompute_face_can_inv(self, template_verts: torch.Tensor):
         # template_verts: [V,3] canonical mesh vertices (same topology as template_faces)
         self.face_M_can_inv = None
@@ -324,8 +325,8 @@ class BindingModel(GaussianModel):
         binding_tri_verts = tri_verts[:, self.binding_face_id] # [B, N, 3, 3]
         binding_offsets = (binding_tri_verts * binding_face_bary).sum(-2) # [B, N, 3]
         binding_rotations = face_tbn[:, self.binding_face_id] # [B, N, 3, 3]
-        
-        gs = self.get_batch_attributes(batch_size, blend_weight)
+        # mesh_verts_nlz = (mesh_verts - self.mean) / self.std
+        gs = self.get_batch_attributes_torch(batch_size, mesh_verts, blend_weight)
         xyz = torch.matmul(binding_rotations, gs.xyz.unsqueeze(-1)).squeeze(-1).view(batch_size, -1, 3) # [B, N, 3]
         xyz += binding_offsets # [B, N, 3]
         rotation = quaternion_multiply(matrix_to_quaternion(binding_rotations), gs.rotation) # [B, N, 4]

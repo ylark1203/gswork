@@ -165,7 +165,7 @@ class GaussianModel:
         )
 
     # legacy
-    def get_batch_attributes_torch(self, batch_size: int, mesh: torch.Tensor, template_faces: torch.Tensor, blend_weight_params: Optional[torch.Tensor] = None,):
+    def get_batch_attributes_torch(self, batch_size: int, mesh: torch.Tensor, blend_weight_params: Optional[torch.Tensor] = None,):
         if blend_weight_params is not None and self.model_config.use_blend:
             # blend_weight = self.project_weight(blend_weight_params)
             blend_weight = self.ae.encoder(mesh)
