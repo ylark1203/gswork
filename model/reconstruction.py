@@ -8,6 +8,8 @@ from diff_renderer import BatchGaussianRenderer
 from camera import Camera
 from utils import Struct, l1_loss, ssim, get_expon_lr_func, create_window, _ssim
 from .binding import BindingModel
+from DISTS_pytorch import DISTS
+dists_loss = DISTS().cuda()
 # from .binding_bbw import BindingModel # bbw
 # from .binding_bbw_wo_binding import BindingModel # 去掉self.binding
 
@@ -102,7 +104,9 @@ class Reconstruction:
 
         # blend & bind
         blend_weight = None if self.iteration < self.recon_config.blend_start_iter else blend_weight # blend_weight: [10, 129]
-        gaussian, shear_loss = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
+        # gaussian, shear_loss = self.gaussian_model.gaussian_deform_batch_torch(template_mesh, blend_weight)
+        gaussian = self.gaussian_model.gaussian_deform_batch(template_mesh, blend_weight)
+
         self.optimizer.zero_grad(set_to_none = True)
 
         # batch render
@@ -112,6 +116,7 @@ class Reconstruction:
         # loss
         lambda_shear = 0 if self.iteration < 6000 else self.recon_config.lambda_shear
         l1_loss_val = l1_loss(image, gt_rgb) if self.recon_config.lambda_l1 > 0.0 else 0.0
+        dists_loss_val = dists_loss(image, gt_rgb, batch_average=True)
         ssim_loss_val = self.ssim_loss(image, gt_rgb) if self.recon_config.lambda_ssim > 0.0 else 0.0
         lpips_loss_val = self.perceptual_loss(image, gt_rgb) if self.recon_config.lambda_lpips > 0.0 else 0.0
         alpha_loss_val = l1_loss(alpha, gt_mask) if self.recon_config.lambda_alpha > 0.0 else 0.0
@@ -123,7 +128,9 @@ class Reconstruction:
             self.recon_config.lambda_alpha * alpha_loss_val + \
             self.recon_config.lambda_sparsity * sparsity_loss_val + \
             self.recon_config.lambda_orth * orth_loss_val + \
-            lambda_shear * shear_loss
+            dists_loss_val
+            # self.recon_config.lambda_orth * orth_loss_val + \
+            # lambda_shear * shear_loss
         
         # optimize
         total_loss.backward()

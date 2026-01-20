@@ -26,12 +26,12 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._feature_dc = torch.empty(0)
-        self._affine2 = torch.empty(0)
+        # self._affine2 = torch.empty(0)
 
         self._xyz_b = torch.empty(0)
         self._feature_b = torch.empty(0)
         self._rotation_b = torch.empty(0)
-        self._affine2_b = torch.empty(0)
+        # self._affine2_b = torch.empty(0)
 
         if self.model_config.use_mlp_proj:
             self.weight_module = nn.Sequential( # MLP
@@ -160,13 +160,13 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': args.rotation_lr, "name": "rotation"},
             {'params': [self._feature_dc], 'lr': args.feature_lr, "name": "f_dc"},
-            {'params': [self._affine2], 'lr': args.affine2_lr, "name": "affine2"}
+            # {'params': [self._affine2], 'lr': args.affine2_lr, "name": "affine2"}
         ]
         bs_params = [
             {'params': [self._xyz_b], 'lr': args.position_b_lr_scale * args.position_lr * args.scene_extent, "name": "xyz_b"},
             {'params': [self._rotation_b], 'lr': args.rotaion_b_lr_scale * args.rotation_lr, "name": "rotation_b"},
             {'params': [self._feature_b], 'lr': args.feature_b_lr_scale * args.feature_lr, "name": "f_dc_b"},
-            {'params': [self._affine2_b], 'lr': args.affine2_b_lr_scale * args.affine2_lr, "name": "affine2_b"}
+            # {'params': [self._affine2_b], 'lr': args.affine2_b_lr_scale * args.affine2_lr, "name": "affine2_b"}
         ]
         adapter_params = [
             {'params': self.weight_module.parameters(), 'lr': args.weight_module_lr, "name": "weight_module"}
@@ -181,14 +181,14 @@ class GaussianModel:
         opacity = self._opacity.cpu().numpy()
         scaling = self._scaling.cpu().numpy()
         rotation = self._rotation.cpu().numpy()
-        affine2 = self._affine2.cpu().numpy()
+        # affine2 = self._affine2.cpu().numpy()
         f_dc = self._feature_dc.cpu().transpose(1, 2).flatten(start_dim=1).numpy()
         f_rest = np.zeros([num_gs, 45], dtype=xyz.dtype)
 
         xyz_b = self._xyz_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
         rotation_b = self._rotation_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
         f_dc_b = self._feature_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
-        affine2_b = self._affine2_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
+        # affine2_b = self._affine2_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
 
         linear_module = flatten_model_params(self.weight_module).cpu().numpy().reshape([-1, 1])
         assert linear_module.shape[0] <= num_gs
@@ -205,11 +205,11 @@ class GaussianModel:
         for i in range(rotation.shape[1]): l.append('rot_{}'.format(i))
         for i in range(f_dc.shape[1]): l.append('f_dc_{}'.format(i))
         for i in range(f_rest.shape[1]): l.append('f_rest_{}'.format(i))
-        for i in range(affine2.shape[1]): l.append('affine2_{}'.format(i))
+        # for i in range(affine2.shape[1]): l.append('affine2_{}'.format(i))
         for i in range(xyz_b.shape[1]): l.append('xyz_b_{}'.format(i))
         for i in range(rotation_b.shape[1]): l.append('rot_b_{}'.format(i))
         for i in range(f_dc_b.shape[1]): l.append('f_dc_b_{}'.format(i))
-        for i in range(affine2_b.shape[1]): l.append('affine2_b_{}'.format(i))
+        # for i in range(affine2_b.shape[1]): l.append('affine2_b_{}'.format(i))
         l.append('weight_module')
         dtype_full = [(attribute, 'f4') for attribute in l]
 
@@ -220,7 +220,8 @@ class GaussianModel:
             dtype_full.append(('face_bary_2', 'f4'))
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, affine2, xyz_b, rotation_b, f_dc_b, affine2_b, linear_module_save), axis=1)
+        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, xyz_b, rotation_b, f_dc_b, linear_module_save), axis=1)
+        # attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, affine2, xyz_b, rotation_b, f_dc_b, affine2_b, linear_module_save), axis=1)
 
         if binding:
             attributes = np.concatenate((attributes, binding_face_id, binding_face_bary), axis=1)
@@ -258,10 +259,10 @@ class GaussianModel:
         ), axis=1)
         assert rotation.shape[0] == num_gaussian
 
-        affine2 = np.stack([
-        np.asarray(plydata.elements[0][f"affine2_{i}"], dtype=np.float32)
-        for i in range(4)
-        ], axis=1)
+        # affine2 = np.stack([
+        # np.asarray(plydata.elements[0][f"affine2_{i}"], dtype=np.float32)
+        # for i in range(4)
+        # ], axis=1)
 
         feature_dc = np.stack((
             np.asarray(plydata.elements[0]["f_dc_0"], dtype=np.float32),
@@ -284,11 +285,11 @@ class GaussianModel:
         assert rotation_b.shape[0] == num_gaussian
         rotation_b = rotation_b.reshape([num_gaussian, self.model_config.num_basis_blend, 4])
 
-        affine2_b_flat = np.stack([
-            np.asarray(plydata.elements[0][f"affine2_b_{i}"], dtype=np.float32)
-            for i in range(self.model_config.num_basis_blend*4)
-        ], axis=1)
-        affine2_b = affine2_b_flat.reshape([num_gaussian, self.model_config.num_basis_blend, 4]).transpose(1,0,2)
+        # affine2_b_flat = np.stack([
+        #     np.asarray(plydata.elements[0][f"affine2_b_{i}"], dtype=np.float32)
+        #     for i in range(self.model_config.num_basis_blend*4)
+        # ], axis=1)
+        # affine2_b = affine2_b_flat.reshape([num_gaussian, self.model_config.num_basis_blend, 4]).transpose(1,0,2)
 
 
 
@@ -324,13 +325,13 @@ class GaussianModel:
         self._opacity = torch.from_numpy(opacity).cuda()
         self._scaling = torch.from_numpy(scaling).cuda()
         self._rotation = torch.from_numpy(rotation).cuda()
-        self._affine2   = torch.from_numpy(affine2).cuda()
+        # self._affine2   = torch.from_numpy(affine2).cuda()
         self._feature_dc = torch.from_numpy(feature_dc).transpose(1, 2).contiguous().cuda()
 
         self._xyz_b = torch.from_numpy(xyz_b).transpose(0, 1).contiguous().cuda()
         self._rotation_b = torch.from_numpy(rotation_b).transpose(0, 1).contiguous().cuda()
         self._feature_b = torch.from_numpy(f_dc_b).transpose(0, 1).contiguous().cuda()
-        self._affine2_b = torch.from_numpy(affine2_b).contiguous().cuda()
+        # self._affine2_b = torch.from_numpy(affine2_b).contiguous().cuda()
 
         if train:
             self._xyz = Parameter(self._xyz.requires_grad_(True))
@@ -338,12 +339,12 @@ class GaussianModel:
             self._scaling = Parameter(self._scaling.requires_grad_(True))
             self._rotation = Parameter(self._rotation.requires_grad_(True))
             self._feature_dc = Parameter(self._feature_dc.requires_grad_(True))
-            self._affine2   = Parameter(self._affine2.requires_grad_(True))
+            # self._affine2   = Parameter(self._affine2.requires_grad_(True))
 
             self._xyz_b = Parameter(self._xyz_b.requires_grad_(True))
             self._rotation_b = Parameter(self._rotation_b.requires_grad_(True))
             self._feature_b = Parameter(self._feature_b.requires_grad_(True))
-            self._affine2_b = Parameter(self._affine2_b.requires_grad_(True))
+            # self._affine2_b = Parameter(self._affine2_b.requires_grad_(True))
 
     @torch.no_grad()
     def load_weight_module(self, path: str):
@@ -360,11 +361,11 @@ class GaussianModel:
             self._scaling,
             self._rotation,
             self._feature_dc,
-            self._affine2,
+            # self._affine2,
             self._xyz_b,
             self._rotation_b,
             self._feature_b,
-            self._affine2_b,
+            # self._affine2_b,
 
             self.weight_module.weight,
             self.weight_module.bias
@@ -377,12 +378,12 @@ class GaussianModel:
         self._scaling.copy_(params[2])
         self._rotation.copy_(params[3])
         self._feature_dc.copy_(params[4])
-        self._affine2.copy_(params[5])
+        # self._affine2.copy_(params[5])
 
         self._xyz_b.copy_(params[6])
         self._rotation_b.copy_(params[7])
         self._feature_b.copy_(params[8])
-        self._affine2_b.copy_(params[9])
+        # self._affine2_b.copy_(params[9])
         self.weight_module.weight.copy_(params[10])
         self.weight_module.bias.copy_(params[11])
 
@@ -393,12 +394,12 @@ class GaussianModel:
             elif group['name'] == 'opacity': self._opacity = group['params'][0]
             elif group['name'] == 'scaling': self._scaling = group['params'][0]
             elif group['name'] == 'rotation': self._rotation = group['params'][0]
-            elif group['name'] == 'affine2': self._affine2 = group['params'][0]
+            # elif group['name'] == 'affine2': self._affine2 = group['params'][0]
             elif group['name'] == 'f_dc': self._feature_dc = group['params'][0]
             elif group['name'] == 'xyz_b': self._xyz_b = group['params'][0]
             elif group['name'] == 'rotation_b': self._rotation_b = group['params'][0]
             elif group['name'] == 'f_dc_b': self._feature_b = group['params'][0]
-            elif group['name'] == 'affine2_b': self._affine2_b = group['params'][0]
+            # elif group['name'] == 'affine2_b': self._affine2_b = group['params'][0]
             elif group['name'] == 'weight_module':
                 self.weight_module.weight = group['params'][0]
                 self.weight_module.bias = group['params'][1]

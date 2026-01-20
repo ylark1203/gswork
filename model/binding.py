@@ -2,6 +2,7 @@ from typing import Union, Optional
 from abc import abstractmethod
 
 import torch
+import torch.nn as nn
 from torch.nn import Parameter
 import nvdiffrast.torch as dr
 import torch.nn.functional as F
@@ -119,13 +120,15 @@ def QR_orthogonalization(vectors: torch.Tensor) -> torch.Tensor:
     return orthogonalized
 
 
-class BindingModel(GaussianModel):
+class BindingModel(nn.Module, GaussianModel):
     def __init__(self, 
         model_config: Struct,
         template_model: Union[FLAME, FuHead],
         glctx: Union[dr.RasterizeGLContext, dr.RasterizeCudaContext]
     ):
-        super().__init__(model_config)
+        # super().__init__(model_config)
+        nn.Module.__init__(self)          # 先把 nn.Module 初始化起来（关键）
+        GaussianModel.__init__(self, model_config)  # 再初始化 GaussianModel
         self.template_model = template_model
         self.template_uvs = self.template_model.uvs.to(torch.float32)
         self.template_faces = self.template_model.faces.to(torch.int32)
@@ -135,6 +138,9 @@ class BindingModel(GaussianModel):
         self.glctx = glctx
         self.binding()
 
+        self.row, self.col = build_vertex_adjacency(self.template_faces, 5083, device="cpu")
+        self.register_buffer("adj_row", self.row)
+        self.register_buffer("adj_col", self.col)
     def _precompute_face_can_inv(self, template_verts: torch.Tensor):
         # template_verts: [V,3] canonical mesh vertices (same topology as template_faces)
         self.face_M_can_inv = None
@@ -314,6 +320,13 @@ class BindingModel(GaussianModel):
 
         reg = (aa-1).pow(2) + (dd-1).pow(2) + b.pow(2) + c.pow(2)    
         # reg = (aa-1).pow(2) + (dd-1).pow(2)          
+
+        # jacobian
+        # B = mesh_verts.shape[0]
+        # tri_verts = mesh_verts[:, self.template_faces]  # [B,F,3,3]
+        # jacobian_matrix = compute_face_Jacobian(mesh_verts, self.template_faces)
+        # gs = self.get_batch_attributes_torch(B, blend_weight)
+        # rotation = gs.rotation
         return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.affine2, cov3D=cov3D), reg.mean()
 
     
@@ -332,11 +345,22 @@ class BindingModel(GaussianModel):
         tri_verts = mesh_verts[:, self.template_faces]
         gs = self.get_batch_attributes(mesh_verts.shape[0], blend_weight)
         face_tbn = compute_face_tbn(tri_verts, self.face_uvs) # [B, F, 3, 3] [F, 3, 2] => [B, F, 3, 3]
+        J_face = compute_face_Jacobian(mesh_verts, self.template_faces)
+        J_v = faces_to_vertex_jacobian(J_face, self.template_faces, tri_verts, n_verts=5083)  # [B, V, 3, 3]
+        row, col = self.adj_row.cuda(), self.adj_col.cuda()
+        J_v_smooth = laplacian_smooth(J_v, row, col, 5083, lam=0.4, iters=5)  # 可调
+        J_g = gather_gaussian_jacobian_from_vertices(
+            J_v_smooth,
+            self.template_faces,
+            self.binding_face_id,
+            self.binding_face_bary
+        )  # [B, N, 3, 3]
         xyz, rotation = mesh_binding(
             gs.xyz, gs.rotation,
-            tri_verts, face_tbn,
+            tri_verts, J_g,
             self.binding_face_bary, self.binding_face_id
         )
+
         return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh)
     
     def extract_texture(self):
@@ -451,4 +475,175 @@ class FuHeadBindingModel(BindingModel):
         verts = torch.matmul(verts, global_rotation.transpose(-1, -2))
         verts += translation.unsqueeze(1)
         return verts
-    
+
+def compute_face_Jacobian(verts, faces):
+    # assert return_scale
+    i0 = faces[..., 0].long()
+    i1 = faces[..., 1].long()
+    i2 = faces[..., 2].long()
+
+    v0 = verts[..., i0, :]
+    v1 = verts[..., i1, :]
+    v2 = verts[..., i2, :]
+
+    r0 = v1 - v0
+    r1 = v2 - v0 
+    # r2 = safe_normalize(torch.cross(r0, v2 - v0, dim=-1))
+    r2_denorm = torch.cross(r0, r1, dim=-1)
+    # r2 = r2_denorm / torch.sqrt(torch.norm(r2_denorm, dim=-1, keepdim=True, p=2))
+    r2 = safe_sqrt_normalize(r2_denorm)
+    J = torch.cat([r0[..., None], r1[..., None], r2[..., None]], dim=-1)
+    # E_inverse = torch.linalg.inv(E)
+    return J
+
+def dot(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    return torch.sum(x*y, -1, keepdim=True)
+
+def length(x: torch.Tensor, eps: float =1e-20) -> torch.Tensor:
+    return torch.sqrt(torch.clamp(dot(x,x), min=eps)) 
+
+def safe_sqrt_normalize(x: torch.Tensor, eps: float =1e-20) -> torch.Tensor:
+    return x / torch.sqrt(length(x, eps))
+
+def face_areas(tri_verts: torch.Tensor) -> torch.Tensor:
+    """
+    tri_verts: [B, F, 3, 3]
+    return: [B, F] area
+    """
+    v0 = tri_verts[:, :, 0]
+    v1 = tri_verts[:, :, 1]
+    v2 = tri_verts[:, :, 2]
+    area = 0.5 * torch.linalg.norm(torch.cross(v1 - v0, v2 - v0, dim=-1), dim=-1)
+    return area.clamp_min(1e-12)
+
+def scatter_add(src: torch.Tensor, index: torch.Tensor, dim: int, dim_size: int) -> torch.Tensor:
+    """
+    Minimal scatter_add using index_add_.
+    src: [..., N, ...] and index: [N]
+    """
+    out_shape = list(src.shape)
+    out_shape[dim] = dim_size
+    out = src.new_zeros(out_shape)
+    out.index_add_(dim, index, src)
+    return out
+
+def faces_to_vertex_jacobian(
+    J_face: torch.Tensor,
+    faces: torch.Tensor,
+    tri_verts: torch.Tensor,
+    n_verts: int
+) -> torch.Tensor:
+    """
+    Convert per-face Jacobian to per-vertex Jacobian by area-weighted averaging.
+
+    J_face:   [B, F, 3, 3]
+    faces:    [F, 3] long
+    tri_verts:[B, F, 3, 3]
+    n_verts:  int
+    return:   [B, V, 3, 3]
+    """
+    B, Ff = J_face.shape[:2]
+    device = J_face.device
+    faces = faces.to(device)
+
+    w_face = face_areas(tri_verts)  # [B, F]
+    # Each face contributes to its 3 vertices. We'll replicate J_face and weights 3 times.
+    # index: [F*3]
+    idx = faces.reshape(-1)  # [F*3]
+    # src: [B, F*3, 3, 3]
+    J_rep = J_face.repeat_interleave(3, dim=1)
+    w_rep = w_face.repeat_interleave(3, dim=1).unsqueeze(-1).unsqueeze(-1)  # [B, F*3, 1, 1]
+
+    num = scatter_add(J_rep * w_rep, idx, dim=1, dim_size=n_verts)  # [B, V, 3, 3]
+    den = scatter_add(w_rep, idx, dim=1, dim_size=n_verts)          # [B, V, 1, 1]
+    J_v = num / den.clamp_min(1e-12)
+    return J_v
+
+def build_vertex_adjacency(faces: torch.Tensor, n_verts: int, device=None):
+    """
+    Build undirected adjacency list (edge_index) from faces.
+    faces: [F,3] long
+    return:
+      row: [E] long, col: [E] long  (edges v_j -> v_i for aggregation)
+    """
+    if device is None:
+        device = faces.device
+    faces = faces.to(device)
+
+    a = faces[:, 0]
+    b = faces[:, 1]
+    c = faces[:, 2]
+
+    # undirected edges: (a,b),(b,a),(b,c),(c,b),(c,a),(a,c)
+    row = torch.cat([a, b, b, c, c, a], dim=0)
+    col = torch.cat([b, a, c, b, a, c], dim=0)
+
+    # remove self-loops (just in case)
+    mask = row != col
+    row, col = row[mask], col[mask]
+    return row, col
+
+def neighbor_mean(x: torch.Tensor, row: torch.Tensor, col: torch.Tensor, n_verts: int) -> torch.Tensor:
+    """
+    Compute mean of neighbor features for each vertex.
+    x: [B, V, ...]
+    row, col: edges col -> row (aggregate from col to row)
+    """
+    B = x.shape[0]
+    # Gather source features: [B, E, ...]
+    src = x.index_select(1, col)
+    # Sum into target vertices
+    out = scatter_add(src, row, dim=1, dim_size=n_verts)
+
+    # Degree
+    deg = x.new_zeros((n_verts,), dtype=x.dtype)
+    deg.index_add_(0, row, torch.ones_like(row, dtype=x.dtype))
+    deg = deg.clamp_min(1.0).view(1, n_verts, *([1] * (x.dim() - 2)))
+
+    return out / deg
+
+def laplacian_smooth(
+    J_v: torch.Tensor,
+    row: torch.Tensor,
+    col: torch.Tensor,
+    n_verts: int,
+    lam: float = 0.5,
+    iters: int = 1
+) -> torch.Tensor:
+    """
+    Simple Laplacian smoothing on per-vertex Jacobian field.
+    J_v: [B, V, 3, 3]
+    """
+    x = J_v
+    for _ in range(iters):
+        nb = neighbor_mean(x, row, col, n_verts)  # [B, V, 3, 3]
+        x = (1.0 - lam) * x + lam * nb
+    return x
+
+def gather_gaussian_jacobian_from_vertices(
+    J_v: torch.Tensor,
+    faces: torch.Tensor,
+    binding_face_id: torch.Tensor,
+    binding_face_bary: torch.Tensor
+) -> torch.Tensor:
+    """
+    Interpolate per-vertex Jacobian to each Gaussian via barycentric coordinates on its bound face.
+
+    J_v: [B, V, 3, 3]
+    faces: [F, 3]
+    binding_face_id: [N] (face index per gaussian)
+    binding_face_bary: [N, 3] (barycentric per gaussian)
+    return: J_g [B, N, 3, 3]
+    """
+    device = J_v.device
+    faces = faces.to(device)
+    fid = binding_face_id.to(device)  # [N]
+    bary = binding_face_bary.to(device)  # [N,3]
+
+    tri_vid = faces[fid]  # [N,3] vertex ids
+    # fetch per-vertex J for these 3 vertices
+    J_tri = J_v[:, tri_vid]  # [B, N, 3, 3, 3]  (the middle '3' is vertex-in-triangle)
+    # bary weights
+    w = bary.view(1, -1, 3, 1, 1)  # [1, N, 3, 1, 1]
+    J_g = (J_tri * w).sum(dim=2)   # sum over the 3 triangle vertices -> [B, N, 3, 3]
+    return J_g
