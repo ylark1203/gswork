@@ -26,7 +26,7 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._feature_dc = torch.empty(0)
-
+        self._shear = torch.empty(0)
         self._xyz_b = torch.empty(0)
         self._feature_b = torch.empty(0)
         self._rotation_b = torch.empty(0)
@@ -46,22 +46,42 @@ class GaussianModel:
         self.inv_opactity_act = inverse_sigmoid
         self.scaling_act = torch.exp
         self.inv_scaling_act = torch.log
+        self.shear_act = lambda x: 0.001 * torch.tanh(x)
         self.rotation_act = lambda x:  torch.nn.functional.normalize(x, dim=-1)
     
-    def get_batch_attributes(self, batch_size: int):
-        _xyz = self._xyz.expand(batch_size, -1, -1)
-        _rotation = self._rotation.expand(batch_size, -1, -1)
-        _feature_dc = self._feature_dc.expand(batch_size, -1, -1, -1)
-        
-        _opacity = self._opacity.expand(batch_size, -1, -1)
-        _scaling = self._scaling.expand(batch_size, -1, -1)
-        
+    def project_weight(self, blend_weight_in: torch.Tensor):
+        blend_weight_in = blend_weight_in[:, :self.model_config.num_basis_in]
+        if self.model_config.use_weight_proj:
+            blend_weight_proj = self.weight_module(blend_weight_in)
+            return blend_weight_proj
+        else:
+            return blend_weight_in
+            
+    def get_batch_attributes(self, batch_size: int, blend_weight: Optional[torch.Tensor] = None):
+        if blend_weight is not None and self.model_config.use_blend:
+            blend_weight = self.project_weight(blend_weight) # blend_weight: [10， 129]            
+            _xyz, _rotation, _feature_dc = linear_blending(
+                blend_weight,
+                self._xyz, self._rotation, self._feature_dc,
+                self._xyz_b, self._rotation_b, self._feature_b
+            )
+            _opacity = self._opacity.expand(batch_size, -1, -1)
+            _scaling = self._scaling.expand(batch_size, -1, -1)
+            _shear = self._shear.expand(batch_size, -1, -1)
+        else:
+            _xyz = self._xyz.expand(batch_size, -1, -1)
+            _rotation = self._rotation.expand(batch_size, -1, -1)
+            _opacity = self._opacity.expand(batch_size, -1, -1)
+            _scaling = self._scaling.expand(batch_size, -1, -1)
+            _feature_dc = self._feature_dc.expand(batch_size, -1, -1, -1)
+            _shear = self._shear.expand(batch_size, -1, -1)
         return GaussianAttributes(
             _xyz, 
             self.opacity_act(_opacity), 
             self.scaling_act(_scaling), 
             self.rotation_act(_rotation), 
-            _feature_dc
+            _feature_dc,
+            self.shear_act(_shear)
         )
     
     def sparsity_loss(self, blend_weight: torch.Tensor):
@@ -76,7 +96,8 @@ class GaussianModel:
             {'params': [self._opacity], 'lr': args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': args.rotation_lr, "name": "rotation"},
-            {'params': [self._feature_dc], 'lr': args.feature_lr, "name": "f_dc"}
+            {'params': [self._feature_dc], 'lr': args.feature_lr, "name": "f_dc"},
+            {'params': [self._shear], 'lr': args.shear_lr, "name": "shear"}
         ]
         bs_params = [
             {'params': [self._xyz_b], 'lr': args.position_b_lr_scale * args.position_lr * args.scene_extent, "name": "xyz_b"},
@@ -98,7 +119,7 @@ class GaussianModel:
         rotation = self._rotation.cpu().numpy()
         f_dc = self._feature_dc.cpu().transpose(1, 2).flatten(start_dim=1).numpy()
         f_rest = np.zeros([num_gs, 45], dtype=xyz.dtype)
-
+        shear = self._shear.cpu().numpy()
         xyz_b = self._xyz_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
         rotation_b = self._rotation_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
         f_dc_b = self._feature_b.transpose(0, 1).reshape([num_gs, -1]).contiguous().cpu().numpy()
@@ -116,6 +137,7 @@ class GaussianModel:
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz', 'opacity']
         for i in range(scaling.shape[1]): l.append('scale_{}'.format(i))
         for i in range(rotation.shape[1]): l.append('rot_{}'.format(i))
+        for i in range(shear.shape[1]): l.append(f'shear_{i}')
         for i in range(f_dc.shape[1]): l.append('f_dc_{}'.format(i))
         for i in range(f_rest.shape[1]): l.append('f_rest_{}'.format(i))
         for i in range(xyz_b.shape[1]): l.append('xyz_b_{}'.format(i))
@@ -131,7 +153,8 @@ class GaussianModel:
             dtype_full.append(('face_bary_2', 'f4'))
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, xyz_b, rotation_b, f_dc_b, linear_module_save), axis=1)
+        # attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, f_dc, f_rest, xyz_b, rotation_b, f_dc_b, linear_module_save), axis=1)
+        attributes = np.concatenate((xyz, normal, opacity, scaling, rotation, shear, f_dc, f_rest, xyz_b, rotation_b, f_dc_b, linear_module_save), axis=1)
 
         if binding:
             attributes = np.concatenate((attributes, binding_face_id, binding_face_bary), axis=1)
@@ -168,6 +191,23 @@ class GaussianModel:
             np.asarray(plydata.elements[0]["rot_3"], dtype=np.float32)
         ), axis=1)
         assert rotation.shape[0] == num_gaussian
+
+        # shear
+        shear_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("shear_")]
+        shear_names = sorted(shear_names, key=lambda x: int(x.split('_')[-1]))
+
+        if len(shear_names) > 0:
+            shear = np.zeros((num_gaussian, len(shear_names)), dtype=np.float32)
+            for idx, attr_name in enumerate(shear_names):
+                shear[:, idx] = np.asarray(plydata.elements[0][attr_name], dtype=np.float32)
+            assert shear.shape[0] == num_gaussian
+
+            # 期望 shear 是 3 维 (a01,a02,a12)
+            if shear.shape[1] != 3:
+                raise ValueError(f"Expected shear dim=3, but got {shear.shape[1]} from {shear_names}")
+        else:
+            # 兼容旧 ply：没有 shear 字段就用 0（退化回原始 RS）
+            shear = np.zeros((num_gaussian, 3), dtype=np.float32)
 
         feature_dc = np.stack((
             np.asarray(plydata.elements[0]["f_dc_0"], dtype=np.float32),
@@ -223,7 +263,7 @@ class GaussianModel:
         self._scaling = torch.from_numpy(scaling).cuda()
         self._rotation = torch.from_numpy(rotation).cuda()
         self._feature_dc = torch.from_numpy(feature_dc).transpose(1, 2).contiguous().cuda()
-
+        self._shear = torch.from_numpy(shear).cuda()
         self._xyz_b = torch.from_numpy(xyz_b).transpose(0, 1).contiguous().cuda()
         self._rotation_b = torch.from_numpy(rotation_b).transpose(0, 1).contiguous().cuda()
         self._feature_b = torch.from_numpy(f_dc_b).transpose(0, 1).contiguous().cuda()
@@ -238,7 +278,7 @@ class GaussianModel:
             self._xyz_b = Parameter(self._xyz_b.requires_grad_(True))
             self._rotation_b = Parameter(self._rotation_b.requires_grad_(True))
             self._feature_b = Parameter(self._feature_b.requires_grad_(True))
-
+            self._shear = Parameter(self._shear.requires_grad_(True))
     @torch.no_grad()
     def load_weight_module(self, path: str):
         plydata = PlyData.read(path)

@@ -14,7 +14,7 @@ import pickle as pkl
 """
 
 a = pkl.load(open("/mnt/data/lyl/codes/RGBAvatar/data/FLAME2020/generic_model.pkl", 'rb'), encoding='latin1')
-b = torch.load("/mnt/data/lyl/datasets/INSTA/marcel/checkpoint/00000.frame", weights_only=False)
+b = torch.load("/mnt/data/lyl/datasets/INSTA/marcel/checkpoint/00000.frame")
 c = np.load("/mnt/data/lyl/codes/RGBAvatar/data/FLAME2020/flame_uv.npz")
 # c = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/20.npz")
 # d = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces/5083vertices.npz")

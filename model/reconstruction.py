@@ -7,8 +7,9 @@ from diff_renderer import BatchGaussianRenderer
 from camera import Camera
 from utils import Struct, l1_loss, ssim, get_expon_lr_func, create_window, _ssim
 # from .binding import BindingModel
-# from .binding_bbw import BindingModel # bbw
-from .binding_bbw_wo_binding import BindingModel # 只有网格，不用flame参数
+from .binding_bbw import BindingModel # bbw
+from DISTS_pytorch import DISTS
+D = DISTS().cuda()
 
 class Reconstruction:
     def __init__(self,
@@ -54,6 +55,12 @@ class Reconstruction:
             return self.perceptual_model(image, gt_image).mean()
         else:
             return 0.0
+    def dists_loss(self, image: torch.Tensor, gt_image: torch.Tensor):
+        if self.iteration > 45_000: # hard coded
+            dists_loss_val = D(image, gt_image, require_grad=True, batch_average=True) 
+            return dists_loss_val
+        else:
+            return 0.0
     
 
     def ssim_loss(self, image: torch.Tensor, gt_image: torch.Tensor):
@@ -87,7 +94,8 @@ class Reconstruction:
     def step(self, 
         gt_image: torch.Tensor, 
         template_mesh: torch.Tensor,
-        blend_weight: torch.Tensor
+        blend_weight: torch.Tensor,
+        camera
     ):
         batch_size = gt_image.shape[0]
         self.update_learning_rate()
@@ -100,17 +108,18 @@ class Reconstruction:
 
         # blend & bind
         blend_weight = None if self.iteration < self.recon_config.blend_start_iter else blend_weight # blend_weight: [10, 129]
-        gaussian = self.gaussian_model.gaussian_deform_batch(template_mesh, blend_weight)
+        gaussian, covarience = self.gaussian_model.gaussian_deform_batch(template_mesh, blend_weight)
         self.optimizer.zero_grad(set_to_none = True)
 
         # batch render
-        render_pkg = self.batch_gaussian_renderer.render(bg_color, gaussian, gt_image)
+        render_pkg = self.batch_gaussian_renderer.render(bg_color, gaussian, covarience, camera, gt_image)
         image, alpha = render_pkg["color"], render_pkg["alpha"]
 
         # loss
         l1_loss_val = l1_loss(image, gt_rgb) if self.recon_config.lambda_l1 > 0.0 else 0.0
         ssim_loss_val = self.ssim_loss(image, gt_rgb) if self.recon_config.lambda_ssim > 0.0 else 0.0
         lpips_loss_val = self.perceptual_loss(image, gt_rgb) if self.recon_config.lambda_lpips > 0.0 else 0.0
+        # dists_loss_val = self.dists_loss(image, gt_rgb) if self.recon_config.lambda_dists > 0.0 else 0.0
         alpha_loss_val = l1_loss(alpha, gt_mask) if self.recon_config.lambda_alpha > 0.0 else 0.0
         sparsity_loss_val = self.gaussian_model.sparsity_loss(blend_weight) if self.recon_config.lambda_sparsity > 0.0 else 0.0
         orth_loss_val = self.gaussian_model.orth_loss() if self.recon_config.lambda_orth > 0.0 and blend_weight is not None else 0.0
@@ -120,6 +129,7 @@ class Reconstruction:
             self.recon_config.lambda_alpha * alpha_loss_val + \
             self.recon_config.lambda_sparsity * sparsity_loss_val +\
             self.recon_config.lambda_orth * orth_loss_val
+            # self.recon_config.lambda_dists * dists_loss_val +\
         
         # optimize
         total_loss.backward()

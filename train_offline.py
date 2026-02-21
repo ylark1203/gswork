@@ -35,7 +35,7 @@ def train_offline(
     progress_bar = tqdm(range(iteration), desc="Training")
     for i in range((iteration + batch_size - 1) // batch_size):
         image, mesh, blend_weight = dataloader.get_batch()
-        recon.step(image, mesh, blend_weight)
+        recon.step(image, mesh, blend_weight, camera)
         progress_bar.update(batch_size) # 以batch_size为单位更新progress_bar进度条
 
     training_fps = iteration / progress_bar.format_dict['elapsed'] # progress_bar.format_dict['elapsed']: progress_bar的时间
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     if config['template_type'] == 'Flame':
         flame_model = FLAME(FlameConfig()).cuda()
         train_dataset = FLAMEDataset(flame_model, data_path, split=args.split, preload=args.preload, **config['dataset'])
-        gaussian_model = FLAMEBindingModel(Struct(**config['model']), config['train']['batch_size'], flame_model, glctx)
+        gaussian_model = FLAMEBindingModel(Struct(**config['model']), flame_model, glctx)
     elif config['template_type'] == 'FuHead':
         fuhead_model = FuHead().cuda()
         train_dataset = FuHeadDataset(fuhead_model, data_path, split=args.split, preload=args.preload, **config['dataset'])

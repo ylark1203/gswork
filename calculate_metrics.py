@@ -40,8 +40,8 @@ def compute_metrics(dataset: FLAMEDataset, camera: Camera, gaussian_model: Bindi
             blend_weight = data['blend_weight'].cuda()
             bs = gt_image.shape[0]
 
-            gaussian = gaussian_model.gaussian_deform_batch(mesh, blend_weight)
-            image = render_gs_batch(camera, bg_color, gaussian)["color"]
+            gaussian, covarience = gaussian_model.gaussian_deform_batch(mesh, blend_weight)
+            image = render_gs_batch(camera, bg_color, gaussian, covarience)["color"]
             l1_error_vals[i:i+bs] = torch.abs(image - gt_image).reshape(bs, -1).mean(dim=1)
             l2_error_vals[i:i+bs] = torch.square(image - gt_image).reshape(bs, -1).mean(dim=1)
             psnr_vals[i:i+bs] = psnr(image, gt_image).reshape(bs)

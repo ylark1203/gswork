@@ -1,9 +1,10 @@
 import torch
 import math
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer, BatchGaussianRasterizer
+# from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer, BatchGaussianRasterizer
+from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from camera import Camera
 from dataclasses import dataclass
-
+from typing import Dict
 
 @dataclass
 class GaussianAttributes:
@@ -12,16 +13,18 @@ class GaussianAttributes:
     scaling: torch.Tensor
     rotation: torch.Tensor
     sh: torch.Tensor
+    shear: torch.Tensor
 
 
 def render_gs(
     camera: Camera,
     bg_color: torch.Tensor,
     gs: GaussianAttributes,
+    covarience,
     target_image: torch.Tensor = None,
     sh_degree: int = 0,
     scaling_modifier: float = 1.0
-) -> dict[str, torch.Tensor]:
+) -> Dict[str, torch.Tensor]:
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = torch.zeros_like(gs.xyz, dtype=gs.xyz.dtype, requires_grad=True, device=gs.xyz.device) + 0
     if screenspace_points.requires_grad: # requires_grad == False when inference
@@ -49,7 +52,7 @@ def render_gs(
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
-
+    cov3D_precomp = covarience
     # Rasterize visible Gaussians to image. 
     color, alpha, est_color, est_weight, radii = rasterizer(
         means3D=gs.xyz,
@@ -57,9 +60,12 @@ def render_gs(
         shs=gs.sh,
         colors_precomp=None,
         opacities=gs.opacity,
-        scales=gs.scaling,
-        rotations=gs.rotation,
-        cov3D_precomp=None,
+        # scales=gs.scaling,
+        # rotations=gs.rotation,
+        # cov3D_precomp=None,
+        scales=None,
+        rotations=None,
+        cov3D_precomp=cov3D_precomp,
         target_image=target_image
     )
     return {"color": color, "alpha": alpha, "est_color": est_color, "est_weight": est_weight, "radii": radii}
@@ -69,10 +75,11 @@ def render_gs_batch( # legacy
     camera: Camera,
     bg_color: torch.Tensor,
     gs: GaussianAttributes,
+    covarience,
     target_image: torch.Tensor = None,
     sh_degree: int = 0,
     scaling_modifier: float = 1.0
-) -> dict[str, torch.Tensor]:
+) -> Dict[str, torch.Tensor]:
 
     screenspace_points = torch.zeros_like(gs.xyz, dtype=gs.xyz.dtype, requires_grad=True, device=gs.xyz.device) + 0
     if screenspace_points.requires_grad: # requires_grad == False when inference
@@ -110,16 +117,19 @@ def render_gs_batch( # legacy
         )
 
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
-
+        cov3D_precomp = covarience
         color, alpha, est_color, est_weight, radii = rasterizer(
             means3D=gs.xyz[i],
             means2D=screenspace_points[i],
             shs=gs.sh[i],
             colors_precomp=None,
             opacities=gs.opacity[i],
-            scales=gs.scaling[i],
-            rotations=gs.rotation[i],
-            cov3D_precomp=None,
+            # scales=gs.scaling[i],
+            # rotations=gs.rotation[i],
+            # cov3D_precomp=None,
+            scales=None,
+            rotations=None,
+            cov3D_precomp=cov3D_precomp[i],
             target_image=target_image[i] if target_image is not None else None
         )
         color_list.append(color)

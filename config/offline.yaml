@@ -37,7 +37,7 @@ train:
     scaling_lr: 0.025
     rotation_lr: 0.005
     feature_lr: 0.0125
-
+    shear_lr: 0.0125
     position_b_lr_scale: 0.05
     rotaion_b_lr_scale: 0.5
     feature_b_lr_scale: 0.5
@@ -50,3 +50,4 @@ train:
     lambda_alpha: 0.0
     lambda_sparsity: 0.0
     lambda_orth: 0.0
+    lambda_dists: 0.0

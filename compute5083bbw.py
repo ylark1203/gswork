@@ -100,7 +100,7 @@ V_5083 = template.f.v_template
 F_5083 = template.f.faces
 V_5023 = V_5083[:5023]
 F_5023 = F_5083[:9976]
-W_5023 = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_500/5023_500.npz")
+W_5023 = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_2000/5023_2000.npz")
 handle_indices = W_5023.f.handle_indices
 W_5023 = W_5023.f.vertex_bbw
 
@@ -111,6 +111,6 @@ W_5023 = W_5023.f.vertex_bbw
 
 # 方式1：更稳（推荐）
 W_5083 = transfer_weights_5023_to_5083(V_5023, F_5023, V_5083, W_5023, method="closest_face")
-np.savez("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_500/5083_500_bbw.npz", vertex_bbw=W_5083, handle_indices=handle_indices)
+np.savez("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_2000/5083_2000_bbw.npz", vertex_bbw=W_5083, handle_indices=handle_indices)
 # 方式2：更快（当做 baseline/应急）
 # W_5083 = transfer_weights_5023_to_5083(V_5023, F_5023, V_5083, W_5023, method="nn")

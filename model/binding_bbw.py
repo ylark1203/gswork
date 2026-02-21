@@ -13,7 +13,7 @@ from utils import rgb2sh0, Struct
 from utils import compute_face_tbn as compute_face_tbn_torch
 from diff_renderer import compute_rast_info, GaussianAttributes
 from .gaussian import GaussianModel
-
+from utils import strip_symmetric, build_scaling_rotation, build_covariance_from_s_q_shear
 import numpy as np
 
 
@@ -65,18 +65,55 @@ class BindingModel(GaussianModel):
 
         # === 新增：加载 BBW 并计算每个高斯的 handle 权重 ===
         # bbw_data = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces/5083bbw.npz")
-        bbw_data = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_500/5083_500_bbw.npz")
+        bbw_data = np.load("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_2000/5083_2000_bbw.npz")
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/bala.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/biden.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/c/odes/RGBAvatar/data/mesh_template/INSTA/justin.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/malte_1.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/marcel.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/nf_01.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/nf_03.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/INSTA/wojtek_1.npy")).cuda()
+
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/HQ/subject1.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/HQ/subject2.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/HQ/subject3.npy")).cuda()
+        # self.handle_pos0 = torch.from_numpy(np.load("/mnt/data/lyl/codes/RGBAvatar/data/mesh_template/HQ/subject4.npy")).cuda()
+        
+        # self.handle_pos0.requires_grad = False
         vertex_bbw = bbw_data["vertex_bbw"]          # [V,K]
         self.handle_indices = torch.from_numpy(
             bbw_data["handle_indices"]).long()       # [K]
+        
+        # def build_covariance_from_scaling_rotation(scaling, rotation, scaling_modifier):
+        #     L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+        #     actual_covariance = L @ L.transpose(2, 3)
+        #     symm = strip_symmetric(actual_covariance)
+        #     return symm
+        
+        def build_covariance_from_scaling_rotation(scaling, rotation, shear, scaling_modifier):
+            symm = build_covariance_from_s_q_shear(
+                scaling, rotation, shear,
+                scaling_modifier=scaling_modifier,
+                scaling_activation="softplus"  # 推荐
+            )
+            return symm
 
+        
+        self.covariance_activation = build_covariance_from_scaling_rotation
+        
         self.gaussian_bbw = compute_gaussian_bbw_weights(
             self.template_faces,
             self.binding_face_id,
             self.binding_face_bary,
             vertex_bbw
         ).to(device='cuda', dtype=torch.float32)     # [N,K]
-        
+
+    # def get_covariance(self, scaling, rotation, scaling_modifier=1):
+    #     return self.covariance_activation(scaling, rotation, scaling_modifier)
+    def get_covariance(self, scaling, rotation, shear, scaling_modifier=1):
+        return self.covariance_activation(scaling, rotation, shear, scaling_modifier)
+    
     def binding(self):
         # binding gs with mesh triangle face
         face_uv, face_id = compute_rast_info( # FIXME: precision issue across different devices
@@ -109,7 +146,7 @@ class BindingModel(GaussianModel):
         feature = torch.zeros([num_gaussian, 1, 3], dtype=torch.float32, device='cuda')
         rotation = torch.zeros([num_gaussian, 4], dtype=torch.float32, device='cuda')
         rotation[:, 0] = 1
-
+        shear = torch.zeros([num_gaussian, 3], dtype=torch.float32, device='cuda')
         # initialize linear bases of gaussian attributes
         num_basis_blend = self.model_config.num_basis_blend if self.model_config.use_weight_proj else self.model_config.num_basis_in
         xyz_b = torch.zeros([num_basis_blend, num_gaussian, 3], dtype=torch.float32, device='cuda')
@@ -125,7 +162,7 @@ class BindingModel(GaussianModel):
         self._scaling = Parameter(scaling.requires_grad_(True)) # [N, 3]
         self._rotation = Parameter(rotation.requires_grad_(True)) # [N, 4]
         self._feature_dc = Parameter(feature.requires_grad_(True)) # [N, 1, 3]
-
+        self._shear = Parameter(shear.requires_grad_(True))
         self._xyz_b = Parameter(xyz_b.requires_grad_(True))
         self._feature_b = Parameter(feature_b.requires_grad_(True))
         self._rotation_b = Parameter(rotation_b.requires_grad_(True))
@@ -171,27 +208,41 @@ class BindingModel(GaussianModel):
         B, V, _ = mesh_verts.shape
         N = self.num_gaussian
         K = self.gaussian_bbw.shape[1]
-        
+        tri_verts = mesh_verts[:, self.template_faces]
+        face_tbn = compute_face_tbn(tri_verts, self.face_uvs) # [B, F, 3, 3] [F, 3, 2] => [B, F, 3, 3]
         # 取出 handle 顶点在当前帧的坐标: [B,K,3]
         handle_pos = mesh_verts[:, self.handle_indices, :]  # [B,K,3]
 
         # 高斯的 BBW 权重: [N,K] -> [B,N,K]
         Wg = self.gaussian_bbw.to(mesh_verts.device)        # [N,K]
-        Wg = Wg.unsqueeze(0).expand(B, -1, -1)              # [B,N,K]
+        # Wg = Wg.unsqueeze(0).expand(B, -1, -1)              # [B,N,K]
 
-        # 做线性组合: sum_k w_nk * handle_pos_k
-        # handle_pos: [B,K,3] -> [B,1,K,3]
-        HP = handle_pos.unsqueeze(1)                        # [B,1,K,3]
-        # Wg: [B,N,K] -> [B,N,K,1]
-        xyz = (Wg.unsqueeze(-1) * HP).sum(dim=2)            # [B,N,3]
+        handle_pos0 = self.template_model.v_template[self.handle_indices].float()          # [K,3]  (静态模板)
+        # handle_pos0 = self.handle_pos0[self.handle_indices]
+        handle_pos  = mesh_verts[:, self.handle_indices, :]        # [B,K,3]
+        dH = handle_pos - handle_pos0[None, :, :]             # [B,K,3]
+        dX = torch.einsum('nk,bkd->bnd', Wg, dH)              # [B,N,3]
 
         # 其他属性仍然用已有的 blendshape 模块
         gs = self.get_batch_attributes(B, blend_weight)     # [B,N,...]  
-              
-        rotation = gs.rotation                              # [B,N,4]
+        xyz, rotation = mesh_binding(
+            gs.xyz, gs.rotation,
+            tri_verts, face_tbn,
+            self.binding_face_bary, self.binding_face_id
+        )
+        # xyz = xyz + 0.001*dX                                        # 二次修正
+        TBN_g = face_tbn[:, self.binding_face_id, :, :]  # [B,N,3,3]
+        # world -> local
+        dX_local = torch.einsum('bnij,bnj->bni', TBN_g.transpose(-1, -2), dX)
+        dX_local[..., 2] = 0.0  # 去掉法线分量（关键）
+        # local -> world
+        dX_tan = torch.einsum('bnij,bnj->bni', TBN_g, dX_local)
+        xyz = xyz + 0.01*dX_tan
 
-        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh)
-    
+        # covarience = self.get_covariance(gs.scaling, rotation)
+        # return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh), covarience
+        covarience = self.get_covariance(gs.scaling, rotation, gs.shear)
+        return GaussianAttributes(xyz, gs.opacity, gs.scaling, rotation, gs.sh, gs.shear), covarience
     def extract_texture(self):
         result = torch.zeros([self.model_config.tex_size, self.model_config.tex_size, 3], dtype=torch.float32, device='cuda').reshape(-1, 3)
         result[self.valid_binding_mask] = (self._feature_dc.squeeze(1) - 0.5) / 0.28209479177387814

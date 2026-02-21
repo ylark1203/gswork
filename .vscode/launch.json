@@ -4,7 +4,21 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
+        {
+            "name": "calulate debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--subject",
+                "subject4",
+                "--work_name",
+                "bbw_2000_covarience_dX512",
+                "--output_dir",
+                "output/HR"
+            ]
+        },
         {
             "name": "render debug",
             "type": "debugpy",
@@ -14,25 +28,42 @@
             "args": [
                 "--subject",
                 "subject1",
-                "--work_name", 
-                "debug", 
+                "--work_name",
+                "debug",
                 "--output_dir",
                 "output/HR"
             ]
         },
         {
-            "name": "train_offline debug",
+            "name": "INSTA train_offline debug",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
                 "--subject",
-                "bala",
-                "--work_name", 
-                "debug", 
+                "wojtek_1",
+                "--work_name",
+                "debug",
                 "--config",
                 "config/offline.yaml",
+                "--preload"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "HQ train_offline debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--subject",
+                "subject4",
+                "--work_name",
+                "debug",
+                "--config",
+                "config/offline_GBS_dataset.yaml",
                 "--preload"
             ],
             "justMyCode": false

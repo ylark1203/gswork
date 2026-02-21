@@ -3,7 +3,8 @@ import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
-
+from typing import Tuple
+from typing import Union
 class Struct(object):
     def __init__(self, **kwargs):
         for key, val in kwargs.items():
@@ -170,7 +171,7 @@ def matrix_to_quaternion(R: torch.Tensor):
     return quat
 
 # @torch.compile # Found NVIDIA GeForce GTX 1080 Ti which is too old to be supported by the triton GPU compiler
-def compute_face_tbn(face_verts: torch.Tensor, face_uvs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def compute_face_tbn(face_verts: torch.Tensor, face_uvs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     v0, v1, v2 = face_verts.unbind(-2)
     uv0, uv1, uv2 = face_uvs.unbind(-2)
 
@@ -253,3 +254,171 @@ def average_rotation(R: np.ndarray):
     U, _, Vt = np.linalg.svd(R_avg)
     R_avg_corrected = U @ Vt
     return R_avg_corrected
+
+def strip_lowerdiag(L):
+    uncertainty = torch.zeros((L.shape[0], L.shape[1], 6), dtype=torch.float, device="cuda")
+
+    uncertainty[:, :, 0] = L[:, :, 0, 0]
+    uncertainty[:, :, 1] = L[:, :, 0, 1]
+    uncertainty[:, :, 2] = L[:, :, 0, 2]
+    uncertainty[:, :, 3] = L[:, :, 1, 1]
+    uncertainty[:, :, 4] = L[:, :, 1, 2]
+    uncertainty[:, :, 5] = L[:, :, 2, 2]
+    return uncertainty
+
+def strip_symmetric(sym):
+    return strip_lowerdiag(sym)
+
+def build_rotation(r):
+    norm = torch.sqrt(r[:, :, 0] * r[:, :, 0] + r[:, :, 1] * r[:, :, 1] + r[:, :, 2] * r[:, :, 2] + r[:, :, 3] * r[:, :, 3])
+
+    q = r / norm[:, :, None]
+
+    R = torch.zeros((q.size(0), q.size(1), 3, 3), device='cuda')
+
+    r = q[:, :, 0]
+    x = q[:, :, 1]
+    y = q[:, :, 2]
+    z = q[:, :, 3]
+
+    R[:, :, 0, 0] = 1 - 2 * (y * y + z * z)
+    R[:, :, 0, 1] = 2 * (x * y - r * z)
+    R[:, :, 0, 2] = 2 * (x * z + r * y)
+    R[:, :, 1, 0] = 2 * (x * y + r * z)
+    R[:, :, 1, 1] = 1 - 2 * (x * x + z * z)
+    R[:, :, 1, 2] = 2 * (y * z - r * x)
+    R[:, :, 2, 0] = 2 * (x * z - r * y)
+    R[:, :, 2, 1] = 2 * (y * z + r * x)
+    R[:, :, 2, 2] = 1 - 2 * (x * x + y * y)
+    return R
+
+
+def build_scaling_rotation(s, r):
+    B = s.shape[0]
+
+    L = torch.zeros((B, s.shape[1], 3, 3), dtype=torch.float, device="cuda")
+    R = build_rotation(r)
+
+    L[:, :, 0, 0] = s[:, :, 0]
+    L[:, :, 1, 1] = s[:, :, 1]
+    L[:, :, 2, 2] = s[:, :, 2]
+
+    L = R @ L
+    return L
+
+def build_rotation_bg(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """
+    q: [B, G, 4]  (w, x, y, z)  (your code uses r as w)
+    return: R [B, G, 3, 3]
+    """
+    assert q.dim() == 3 and q.size(-1) == 4, f"q must be [B,G,4], got {q.shape}"
+    # safer normalize
+    q = F.normalize(q, dim=-1, eps=eps)  # unit quaternion
+
+    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+
+    R = torch.empty((*q.shape[:-1], 3, 3), device=q.device, dtype=q.dtype)
+
+    # standard quat to rot (right-handed)
+    R[..., 0, 0] = 1 - 2 * (y * y + z * z)
+    R[..., 0, 1] = 2 * (x * y - w * z)
+    R[..., 0, 2] = 2 * (x * z + w * y)
+
+    R[..., 1, 0] = 2 * (x * y + w * z)
+    R[..., 1, 1] = 1 - 2 * (x * x + z * z)
+    R[..., 1, 2] = 2 * (y * z - w * x)
+
+    R[..., 2, 0] = 2 * (x * z - w * y)
+    R[..., 2, 1] = 2 * (y * z + w * x)
+    R[..., 2, 2] = 1 - 2 * (x * x + y * y)
+
+    return R
+
+
+def strip_symmetric_bg(M: torch.Tensor) -> torch.Tensor:
+    """
+    M: [B,G,3,3] symmetric
+    return: [B,G,6] in order (0,0),(0,1),(0,2),(1,1),(1,2),(2,2)
+    """
+    assert M.shape[-2:] == (3, 3)
+    out = torch.empty((*M.shape[:-2], 6), device=M.device, dtype=M.dtype)
+    out[..., 0] = M[..., 0, 0]
+    out[..., 1] = M[..., 0, 1]
+    out[..., 2] = M[..., 0, 2]
+    out[..., 3] = M[..., 1, 1]
+    out[..., 4] = M[..., 1, 2]
+    out[..., 5] = M[..., 2, 2]
+    return out
+
+
+# =========================================================
+# A1-方案1：RS -> R S A  （加入 3 个剪切参数，表达相关项）
+# =========================================================
+
+def build_scaling_rotation_shear(
+    s: torch.Tensor,
+    q: torch.Tensor,
+    shear: torch.Tensor,
+    *,
+    scaling_activation: str = "none",  # "none" | "exp" | "softplus"
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """
+    s:     [B,G,3] scaling (sx,sy,sz)
+    q:     [B,G,4] quaternion (w,x,y,z)
+    shear: [B,G,3] (a01,a02,a12) -> upper-triangular shear matrix A:
+            A = [[1, a01, a02],
+                 [0,  1, a12],
+                 [0,  0,  1]]
+    return:
+        L: [B,G,3,3] where L = R @ (S @ A)  (equivalently R S A)
+    """
+    assert s.shape[-1] == 3 and q.shape[-1] == 4 and shear.shape[-1] == 3
+    B, G = s.shape[0], s.shape[1]
+    device, dtype = s.device, s.dtype
+
+    s_eff = s
+    R = build_rotation_bg(q, eps=eps)  # [B,G,3,3]
+
+    # Build S = diag(sx,sy,sz)
+    S = torch.zeros((B, G, 3, 3), device=device, dtype=dtype)
+    S[..., 0, 0] = s_eff[..., 0]
+    S[..., 1, 1] = s_eff[..., 1]
+    S[..., 2, 2] = s_eff[..., 2]
+
+    # Build A (upper-triangular with ones on diagonal)
+    a01, a02, a12 = shear[..., 0], shear[..., 1], shear[..., 2]
+    A = torch.zeros((B, G, 3, 3), device=device, dtype=dtype)
+    A[..., 0, 0] = 1.0
+    A[..., 1, 1] = 1.0
+    A[..., 2, 2] = 1.0
+    A[..., 0, 1] = a01
+    A[..., 0, 2] = a02
+    A[..., 1, 2] = a12
+
+    # L = R @ (S @ A)
+    # (S@A) keeps SPD covariance when you later do Sigma = L L^T
+    L = R @ (S @ A)
+    return L
+
+def build_covariance_from_s_q_shear(
+    s: torch.Tensor,
+    q: torch.Tensor,
+    shear: torch.Tensor,
+    *,
+    scaling_modifier: float | torch.Tensor = 1.0,
+    scaling_activation: str = "none",
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """
+    Return symmetric 6D covariance representation [B,G,6].
+    """
+    # allow scaling_modifier as scalar or tensor broadcastable to [B,G,3]
+    s_mod = s * scaling_modifier
+    L = build_scaling_rotation_shear(
+        s_mod, q, shear,
+        scaling_activation=scaling_activation,
+        eps=eps
+    )
+    Sigma = L @ L.transpose(-1, -2)  # [B,G,3,3] SPD
+    return strip_symmetric_bg(Sigma)

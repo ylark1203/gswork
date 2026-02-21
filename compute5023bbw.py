@@ -48,7 +48,7 @@ def farthest_point_sampling(V, K, seed=105):
 
 
 # 举例：选 16 个 handle
-K = 500
+K = 2000
 b = farthest_point_sampling(V, K)
 # b = np.array([i for i in range(5023)])
 
@@ -105,7 +105,7 @@ print("[BBW] W min/max/mean:", W.min(), W.max(), W.mean())
 
 # np.save("/mnt/data/lyl/codes/RGBAvatar/BBW/129.npy", W)
 # 写成 npz 文件
-np.savez("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_500/5023_500.npz",vertex_bbw=W,handle_indices=b)
+np.savez("/mnt/data/lyl/codes/RGBAvatar/BBW/vertice_and_faces_2000/5023_2000.npz",vertex_bbw=W,handle_indices=b)
 
 # ========= 4. 可视化某个 handle 的权重 =========
 def visualize_weight_field(V, F, W, handle_id=0, 

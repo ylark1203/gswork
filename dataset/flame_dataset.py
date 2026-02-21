@@ -7,6 +7,8 @@ from torch.utils.data import Dataset
 from roma import rotmat_to_euler
 from submodules.flame import FLAME
 from utils import rotation_6d_to_matrix
+import cv2
+import torchvision.transforms as T
 
 
 class FLAMEDataset(Dataset):
@@ -65,7 +67,8 @@ class FLAMEDataset(Dataset):
     
     def __getitem__(self, index):
         if self.images is None:
-            image_np = np.array(Image.open(self.image_paths[index]))
+            # image_np = np.array(Image.open(self.image_paths[index]))
+            image_np = np.array(Image.open(self.image_paths[index]).convert("RGBA").resize((512, 512), resample=Image.BILINEAR))
             image_tf = torch.from_numpy(image_np).permute(2, 0, 1)
         else:
             image_tf = self.images[index]
@@ -84,7 +87,8 @@ class FLAMEDataset(Dataset):
     def load_images(self):
         images = []
         for img_path in tqdm(self.image_paths, desc="Loading images"):
-            img = np.array(Image.open(img_path))
+            # img = np.array(Image.open(img_path))
+            img = np.array(Image.open(img_path).convert("RGBA").resize((512, 512), resample=Image.BILINEAR))
             images.append(img)
         self.images = torch.from_numpy(np.stack(images, axis=0)).permute(0, 3, 1, 2).contiguous() # caution: pre contiguous here
         if self.pin_memory: self.images = self.images.pin_memory() # use pinned memory
@@ -98,10 +102,10 @@ class FLAMEDataset(Dataset):
         self.image_width = flame_data['img_size'][0]
         self.image_height = flame_data['img_size'][1]
         print("Load camera params with frame 0")
-        if self.HQ:
-            self.camera_intri[0:2] *= 2
-            self.image_width *= 2
-            self.image_height *= 2
+        # if self.HQ:
+        #     self.camera_intri[0:2] *= 2
+        #     self.image_width *= 2
+        #     self.image_height *= 2
 
     def load_track_params(self):
         shapes = []
